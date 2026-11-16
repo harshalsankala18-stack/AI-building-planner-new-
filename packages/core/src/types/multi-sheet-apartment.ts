@@ -1,0 +1,303 @@
+import type { ArchitecturalGenerationOptions } from './architectural-elements';
+import type { RegulatoryContextInput } from './udcpr';
+/**
+ * Multi-Sheet Apartment Project Domain & Configuration Contracts (§1C).
+ *
+ * Defines the configuration and schedule schemas for generating all 6 coordinated
+ * 2D architectural sheets for an Indian Residential Apartment project:
+ * Sheet 1: SITE_PLAN
+ * Sheet 2: STILT_PARKING_PLAN
+ * Sheet 3: TYPICAL_FLOOR_PLAN
+ * Sheet 4: REFUGE_FLOOR_PLAN (mandatory when height > 24m)
+ * Sheet 5: TERRACE_PLAN
+ * Sheet 6: AREA_SCHEDULE_SHEET
+ *
+ * All dimensions in millimeters (mm).
+ * All areas in square millimeters (mm²), square meters (m²), or square feet (sq ft).
+ */
+
+import type {
+  Direction,
+  LotAllotmentMode,
+  ApartmentBhkType,
+  ApartmentJurisdictionCode,
+} from './enums';
+import type { DynamicApartmentUnitSpec } from './apartment-manifest';
+import type { Floor, Site, Building, Setbacks } from './building';
+import type { GeometryValidationReport } from './geometry-validation';
+
+export type VerticalStackType = 'G_PLUS_N' | 'STILT_PLUS_N' | 'BASEMENT_STILT_PLUS_N';
+export type ParkingMode = 'STILT_AND_SURFACE' | 'STILT_ONLY' | 'MECHANICAL_STACK';
+export type AreaTargetScope = 'GROSS_FLOOR_AREA' | 'FLOOR_TOTAL_CARPET' | 'PER_APARTMENT_CARPET';
+export type BuildingMassingShape =
+  | 'COMPACT_DOUBLE_LOADED'
+  | 'H_SHAPE_WING'
+  | 'U_SHAPE_COURTYARD'
+  | 'L_SHAPE_CORNER'
+  | 'CRUCIFORM_PLUS'
+  | 'PINWHEEL_CLUSTER'
+  | 'STEPPED_OFFSET_BLOCK';
+
+export interface AreaTargetDiagnostic {
+  readonly scope: AreaTargetScope;
+  readonly requestedAreaSqFt: number;
+  readonly requestedAreaM2: number;
+  readonly achievedAreaSqFt: number;
+  readonly achievedAreaM2: number;
+  readonly minFeasibleGrossAreaM2?: number;
+  readonly minFeasibleGrossAreaSqFt?: number;
+  /** Compatibility aliases for callers checking Phase 0 shortened names. */
+  readonly requestedSqFt?: number;
+  readonly requestedM2?: number;
+  readonly achievedSqFt?: number;
+  readonly achievedM2?: number;
+  readonly minimumFeasibleGrossM2?: number;
+  readonly status: 'ACHIEVED' | 'CLAMPED_TO_ENVELOPE_MAX' | 'INFEASIBLE_BELOW_MINIMUM_HABITABLE_FLOOR_PLATE';
+  readonly explanation: string;
+}
+
+/** Selectable Site Amenities (Ground & Marginal Setbacks). */
+export interface SiteAmenitiesConfig {
+  readonly securityCabin: boolean;
+  readonly landscapeGardenRos: boolean;
+  readonly childrenPlayTotLot: boolean;
+  readonly seniorCitizenSitout: boolean;
+  readonly transformerDgYard: boolean;
+  readonly ugwtPumpRoom: boolean;
+  readonly stpPlant: boolean;
+  readonly owcWasteYard: boolean;
+  readonly rainwaterHarvestingPits: boolean;
+  readonly evChargingBays: boolean;
+}
+
+/** Selectable Stilt Amenities (Ground Plinth Indoor Spaces). */
+export interface StiltAmenitiesConfig {
+  readonly grandEntranceLobby: boolean;
+  readonly societyOffice: boolean;
+  readonly fitnessGymnasium: boolean;
+  readonly multipurposeHall: boolean;
+  readonly meterBmsRoom: boolean;
+  readonly driverStaffToilet: boolean;
+}
+
+/** Selectable Terrace Amenities (Rooftop Services & Wellness). */
+export interface TerraceAmenitiesConfig {
+  readonly stairMumtyHeadroom: boolean;
+  readonly liftMachineRoom: boolean;
+  readonly overheadWaterTank: boolean;
+  readonly solarPvArray: boolean;
+  readonly terraceYogaDeck: boolean;
+}
+
+/** Comprehensive configuration for a multi-sheet residential apartment project. */
+export interface MultiSheetApartmentConfig {
+  readonly architectureOptions?: ArchitecturalGenerationOptions;
+  /** Defaults to DEFERRED. Provisional member sizes require an explicit structural workflow. */
+  readonly structuralLayoutMode?: 'DEFERRED' | 'PROVISIONAL_EXISTING_PROFILE';
+  readonly regulatoryContext?: RegulatoryContextInput;
+  readonly projectId?: string;
+  readonly projectName?: string;
+  readonly aiPrompt?: string;
+  /**
+   * Deterministic generation seed. The same plot, brief, seed and engine
+   * version produce byte-identical geometry; a different seed explores the
+   * viable organizations in a different order. The seed never decides whether
+   * a constraint is satisfied. Defaults to 1.
+   */
+  readonly generationSeed?: number;
+  readonly rejectedTopologyHashes?: readonly string[];
+  readonly preferredArchetype?: string;
+  readonly buildingMassingShape?: BuildingMassingShape;
+  readonly aiProposal?: Record<string, unknown>;
+  readonly aiTelemetryOverride?: {
+    readonly geminiInvoked: boolean;
+    readonly provider: string;
+    readonly modelUsed?: string;
+    readonly fallbackReason?: string;
+    readonly referenceImageUsedForGeometry: boolean;
+  };
+  readonly referenceImage?: { readonly name: string; readonly mimeType: string; readonly dataUrl: string };
+  readonly setbacksMm?: Setbacks;
+  readonly plotWidthMm: number;
+  readonly plotDepthMm: number;
+  readonly roadWidthMm: number;
+  readonly roadAccessSides: readonly Direction[];
+  readonly lotAllotmentMode: LotAllotmentMode;
+  readonly jurisdiction: ApartmentJurisdictionCode;
+  readonly verticalStackType: VerticalStackType;
+  readonly numTypicalFloors: number;
+  readonly floorToFloorHeightMm?: number;
+  readonly stiltHeightMm?: number;
+  readonly basementHeightMm?: number;
+  readonly flatsPerFloor: 1 | 2 | 3 | 4 | 5 | 6;
+  readonly units?: readonly DynamicApartmentUnitSpec[];
+  readonly siteAmenities: SiteAmenitiesConfig;
+  readonly stiltAmenities: StiltAmenitiesConfig;
+  readonly terraceAmenities: TerraceAmenitiesConfig;
+  readonly parkingMode: ParkingMode;
+  readonly visitorParkingPercent?: number;
+  /** Explicit area target in sq. ft. (when specified at floor or unit level). */
+  readonly targetAreaSqFt?: number;
+  /** Explicit interpretation scope for targetAreaSqFt. */
+  readonly areaTargetScope?: AreaTargetScope;
+  /** Center the building footprint inside the permissible setback envelope when smaller than the envelope. */
+  readonly centerBuildingInEnvelope?: boolean;
+  /** Render 600 mm concrete window sunshade chajjas in 2D dashed A-CHAJJA, DXF, and 3D (default true). */
+  readonly includeWindowChajjas?: boolean;
+  /** Alternate cantilever balcony bays across Odd vs Even upper floors while locking vertical structure/MEP cores. */
+  readonly staggeredBalconies?: boolean;
+  /** Internal tag set during multi-floor coordination when generating Odd vs Even typical floor variants. */
+  readonly floorVariant?: 'ODD' | 'EVEN';
+}
+
+/** Default Indian apartment project amenities configuration. */
+export const DEFAULT_SITE_AMENITIES: SiteAmenitiesConfig = {
+  securityCabin: true,
+  landscapeGardenRos: true,
+  childrenPlayTotLot: true,
+  seniorCitizenSitout: true,
+  transformerDgYard: true,
+  ugwtPumpRoom: true,
+  stpPlant: true,
+  owcWasteYard: true,
+  rainwaterHarvestingPits: true,
+  evChargingBays: true,
+};
+
+export const DEFAULT_STILT_AMENITIES: StiltAmenitiesConfig = {
+  grandEntranceLobby: true,
+  societyOffice: true,
+  fitnessGymnasium: true,
+  multipurposeHall: true,
+  meterBmsRoom: true,
+  driverStaffToilet: true,
+};
+
+export const DEFAULT_TERRACE_AMENITIES: TerraceAmenitiesConfig = {
+  stairMumtyHeadroom: true,
+  liftMachineRoom: true,
+  overheadWaterTank: true,
+  solarPvArray: true,
+  terraceYogaDeck: true,
+};
+
+/** Individual flat schedule entry in the RERA / UDCPR area statement. */
+export interface FlatScheduleItem {
+  readonly flatId: string;
+  readonly flatNumber: string;
+  readonly bhkType: ApartmentBhkType;
+  readonly reraCarpetAreaM2: number;
+  readonly reraCarpetAreaSqFt: number;
+  readonly balconyAreaM2: number;
+  readonly balconyAreaSqFt: number;
+  readonly totalBuiltUpAreaM2: number;
+  readonly totalBuiltUpAreaSqFt: number;
+}
+
+/** Comprehensive parking ledger under UDCPR / NBC standards. */
+export interface ParkingSchedule {
+  readonly requiredCarStalls: number;
+  readonly providedCarStalls: number;
+  readonly stiltCarStalls: number;
+  readonly surfaceCarStalls: number;
+  readonly stackParkingMultiplier: number;
+  readonly visitorCarStalls: number;
+  readonly requiredTwoWheelerStalls: number;
+  readonly providedTwoWheelerStalls: number;
+  readonly visitorTwoWheelerStalls: number;
+}
+
+/** Mathematical area ledger audit for a single 2D sheet. */
+export interface SheetLedgerAudit {
+  readonly sheetId: string;
+  readonly sheetName: string;
+  readonly grossAreaMm2: number;
+  readonly accountedAreaMm2: number;
+  readonly deltaMm2: number;
+  readonly unassignedMm2: number;
+  readonly isPlanarConserved: boolean;
+}
+
+/** Complete statutory FSI, RERA, and Parking statement for Sheet 6. */
+export interface ApartmentProjectSchedule {
+  readonly plotAreaM2: number;
+  readonly plotAreaSqFt: number;
+  readonly setbackAreaM2: number;
+  readonly groundCoverageM2: number;
+  readonly groundCoveragePercent: number;
+  readonly rosLandscapeAreaM2: number;
+  readonly rosLandscapePercent: number;
+  readonly permissibleFsi: number;
+  readonly consumedFsi: number;
+  readonly totalBuiltUpAreaM2: number;
+  readonly totalReraCarpetAreaM2: number;
+  readonly floorPlateEfficiencyPercent: number;
+  readonly flatSchedule: readonly FlatScheduleItem[];
+  readonly parking: ParkingSchedule;
+  readonly sheetAudits: readonly SheetLedgerAudit[];
+  readonly overallDeltaMm2: number;
+  readonly areaTargetDiagnostic?: AreaTargetDiagnostic;
+}
+
+export type ApartmentSheetType =
+  | 'SITE_PLAN'
+  | 'STILT_PARKING_PLAN'
+  | 'TYPICAL_FLOOR_PLAN'
+  | 'REFUGE_FLOOR_PLAN'
+  | 'COLUMN_SCHEDULE_PLAN'
+  | 'TERRACE_PLAN'
+  | 'AREA_SCHEDULE_SHEET';
+
+/** A coordinated 2D architectural plan sheet within the project package. */
+export interface CoordinatedApartmentSheet {
+  readonly sheetType: ApartmentSheetType;
+  readonly sheetNumber: string; // e.g. "A-101", "A-102", "A-103", "A-104", "A-105", "A-106"
+  readonly title: string;
+  readonly floor?: Floor;
+  readonly site?: Site;
+  readonly schedule?: ApartmentProjectSchedule;
+  readonly audit: SheetLedgerAudit;
+}
+
+/** Complete multi-sheet apartment engine solution result. */
+export interface ApartmentGenerationViolation {
+  readonly code: string;
+  readonly severity: 'CRITICAL' | 'WARNING';
+  readonly source: 'TOPOLOGY' | 'GEOMETRY' | 'CLOSURE' | 'OPENING' | 'GENERATION';
+  readonly description: string;
+  readonly floorId?: string;
+  readonly elementIds: readonly string[];
+  readonly rank: number;
+}
+
+/** Generation evidence, independent of statutory compliance and export approval. */
+export interface ApartmentGenerationReport {
+  readonly status: 'BEST_EFFORT' | 'INTERNAL_CHECKS_PASSED';
+  readonly strategy: 'VALIDATED_TOPOLOGY' | 'BEST_EFFORT_TOPOLOGY' | 'LEGACY_FALLBACK';
+  readonly professionalReviewRequired: true;
+  readonly selectedFamily?: string;
+  readonly selectedVariant?: string;
+  readonly rejectedCandidates: readonly { readonly familyId: string; readonly variantId: string; readonly stage: string; readonly reasons: readonly string[] }[];
+  readonly violations: readonly ApartmentGenerationViolation[];
+}
+
+export type ApartmentGenerationOutcome =
+  | { readonly status: 'PLAN'; readonly result: MultiSheetApartmentResult }
+  | { readonly status: 'INVALID_INPUT' | 'INFEASIBLE' | 'SEARCH_EXHAUSTED'; readonly reason: string;
+      /** Nearest successfully generated alternative in the bounded search, not certified feasible. */
+      readonly alternative?: MultiSheetApartmentResult;
+      readonly alternativeChanges: readonly string[];
+      readonly alternativeSearch: 'NOT_RUN' | 'BOUNDED';
+      readonly professionalReviewRequired: true };
+
+export interface MultiSheetApartmentResult {
+  readonly generationReport?: ApartmentGenerationReport;
+  readonly config: MultiSheetApartmentConfig;
+  readonly building: Building;
+  readonly sheets: readonly CoordinatedApartmentSheet[];
+  readonly schedule: ApartmentProjectSchedule;
+  readonly validationReport?: GeometryValidationReport;
+  readonly totalBuildingHeightMm: number;
+  readonly hasRefugeFloor: boolean;
+  readonly refugeFloorLevels: readonly number[];
+}
