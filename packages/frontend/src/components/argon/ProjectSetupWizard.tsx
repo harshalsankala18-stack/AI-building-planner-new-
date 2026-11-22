@@ -47,11 +47,13 @@ export interface ProjectSetupWizardData {
 interface ProjectSetupWizardProps {
   onGenerate: (data: ProjectSetupWizardData) => void;
   onCancel?: () => void;
+  onOpenDemo?: () => void;
 }
 
 export const ProjectSetupWizard: React.FC<ProjectSetupWizardProps> = ({
   onGenerate,
   onCancel,
+  onOpenDemo,
 }) => {
   const {
     currentStep,
@@ -96,12 +98,26 @@ export const ProjectSetupWizard: React.FC<ProjectSetupWizardProps> = ({
             </div>
           </div>
 
-          {/* Stepper Navigation */}
-          <ArgonStepper
-            steps={steps}
-            currentStep={currentStep}
-            onStepClick={(id) => setStep(id as 1 | 2 | 3 | 4)}
-          />
+          {/* Stepper Navigation & Fast Demo Action */}
+          <div className="flex items-center gap-3">
+            {onOpenDemo && (
+              <button
+                type="button"
+                data-testid="wizard-open-demo-btn"
+                onClick={onOpenDemo}
+                className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black uppercase tracking-wider shadow-sm transition-all cursor-pointer"
+                title="Skip setup wizard and open the pre-configured Demo Architectural Project immediately"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Open Demo Project</span>
+              </button>
+            )}
+            <ArgonStepper
+              steps={steps}
+              currentStep={currentStep}
+              onStepClick={(id) => setStep(id as 1 | 2 | 3 | 4)}
+            />
+          </div>
         </div>
 
         {/* Step Body Content */}
@@ -127,6 +143,16 @@ export const ProjectSetupWizard: React.FC<ProjectSetupWizardProps> = ({
           </ArgonButton>
 
           <div className="flex items-center gap-3">
+            {onOpenDemo && (
+              <ArgonButton
+                variant="secondary"
+                size="md"
+                leftIcon={<Sparkles className="w-4 h-4 text-amber-500" />}
+                onClick={onOpenDemo}
+              >
+                Open Demo in Studio
+              </ArgonButton>
+            )}
             {currentStep < 4 ? (
               <ArgonButton
                 variant="primary"

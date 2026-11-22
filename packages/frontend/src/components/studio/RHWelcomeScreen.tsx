@@ -9,12 +9,14 @@ interface RHWelcomeScreenProps {
   onStartNewProject: () => void;
   onOpenExisting: () => void;
   onExplore: () => void;
+  onOpenDemo?: () => void;
 }
 
 export const RHWelcomeScreen: React.FC<RHWelcomeScreenProps> = ({
   onStartNewProject,
   onOpenExisting,
   onExplore,
+  onOpenDemo,
 }) => {
   const [introFinished, setIntroFinished] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(false);
@@ -150,6 +152,18 @@ export const RHWelcomeScreen: React.FC<RHWelcomeScreenProps> = ({
 
           {/* Action CTAs */}
           <div className="flex flex-wrap items-center gap-4 pt-4">
+            {onOpenDemo && (
+              <button
+                data-testid="open-demo-project-btn"
+                onClick={onOpenDemo}
+                className="px-7 py-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm tracking-wider uppercase flex items-center gap-3 shadow-xl shadow-amber-500/25 transition-all transform hover:-translate-y-0.5 cursor-pointer ring-2 ring-amber-400/50"
+              >
+                <Sparkles size={18} />
+                <span>Open Demo Project in Studio</span>
+                <ArrowRight size={16} />
+              </button>
+            )}
+
             <button
               onClick={onStartNewProject}
               className="px-7 py-4 rounded-xl bg-[#A67C52] hover:bg-[#b8895c] text-[#0a0a0a] font-bold text-sm tracking-wider uppercase flex items-center gap-3 shadow-xl shadow-[#A67C52]/20 transition-all transform hover:-translate-y-0.5 cursor-pointer"

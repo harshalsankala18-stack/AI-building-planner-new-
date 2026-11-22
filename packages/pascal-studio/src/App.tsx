@@ -1,4 +1,4 @@
-import React, { Component, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
+import React, { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import { loadPlugin, useScene } from '@pascal-app/core';
 import { builtinPlugin } from '@pascal-app/nodes';
 import { Editor } from '@pascal-app/editor';
@@ -11,6 +11,7 @@ import {
   type PascalScenePayload,
   type StudioToHostMessage,
 } from '@ai-floor-planner/interop/bridge';
+import { createStarterScene } from './starter-scene';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -20,13 +21,18 @@ interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
   hasError: boolean;
   errorMessage: string;
+  errorStack?: string;
 }
 
 class StudioErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   override state: ErrorBoundaryState = { hasError: false, errorMessage: '' };
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { hasError: true, errorMessage: error.message };
+    return {
+      hasError: true,
+      errorMessage: error.message || 'Unknown render error',
+      errorStack: error.stack,
+    };
   }
 
   override componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
@@ -37,9 +43,37 @@ class StudioErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
   override render(): ReactNode {
     if (this.state.hasError) {
       return (
-        <div style={{ color: '#f87171', padding: '24px', fontFamily: 'sans-serif' }}>
-          <h3>Pascal 3D Studio Error</h3>
-          <p>{this.state.errorMessage}</p>
+        <div className="flex h-full w-full flex-col items-center justify-center bg-slate-950 p-6 text-slate-100 font-mono select-text">
+          <div className="max-w-xl rounded-xl border border-rose-500/60 bg-rose-950/40 p-6 shadow-2xl backdrop-blur">
+            <h2 className="text-base font-bold text-rose-300 flex items-center gap-2">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
+              Pascal 3D Studio Runtime Error
+            </h2>
+            <p className="mt-3 text-xs text-rose-100 font-semibold bg-rose-950/80 p-3 rounded border border-rose-800/60">
+              {this.state.errorMessage}
+            </p>
+            {this.state.errorStack && (
+              <pre className="mt-3 max-h-48 overflow-auto text-[10px] text-slate-300 bg-black/60 p-2.5 rounded">
+                {this.state.errorStack}
+              </pre>
+            )}
+            <div className="mt-4 flex gap-3">
+              <button
+                type="button"
+                onClick={() => this.setState({ hasError: false, errorMessage: '' })}
+                className="rounded bg-rose-600 hover:bg-rose-500 px-3 py-1.5 text-xs font-semibold text-white transition"
+              >
+                Retry Editor Render
+              </button>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="rounded bg-slate-800 hover:bg-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-200 transition"
+              >
+                Reload Window
+              </button>
+            </div>
+          </div>
         </div>
       );
     }
@@ -57,7 +91,7 @@ function sendToHost(message: StudioToHostMessage): void {
           targetOrigin = refOrigin;
         }
       } catch {
-        // fall back to window.location.origin
+        // Fall back to window.location.origin
       }
     }
     window.parent.postMessage(message, targetOrigin);
@@ -68,21 +102,34 @@ const pluginInitPromise = loadPlugin(builtinPlugin).catch((err: unknown) => {
   console.error('Failed to load Pascal builtinPlugin:', err);
   const message = err instanceof Error ? err.message : String(err);
   sendToHost({ type: 'STUDIO_ERROR', code: 'PLUGIN_INIT_FAILED', message });
+  throw err;
 });
 
 export const App: React.FC = () => {
   const [viewMode, setViewMode] = useState<'edit' | 'viewer'>('edit');
   const [ready, setReady] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
+
+  // Buffer incoming scene if host pushes before Editor onLoad requests it
+  const pendingSceneRef = useRef<any | null>(null);
+  const onLoadResolverRef = useRef<((scene: any) => void) | null>(null);
+
+  const isStandalone = typeof window !== 'undefined' && window.self === window.top;
 
   useEffect(() => {
     let mounted = true;
 
-    void pluginInitPromise.then(() => {
-      if (!mounted) return;
-      setReady(true);
-      const webgpuSupported = typeof navigator !== 'undefined' && Boolean((navigator as any).gpu);
-      sendToHost({ type: 'STUDIO_READY', webgpuSupported });
-    });
+    pluginInitPromise
+      .then(() => {
+        if (!mounted) return;
+        setReady(true);
+        const webgpuSupported = typeof navigator !== 'undefined' && Boolean((navigator as any).gpu);
+        sendToHost({ type: 'STUDIO_READY', webgpuSupported });
+      })
+      .catch((err: unknown) => {
+        if (!mounted) return;
+        setInitError(err instanceof Error ? err.message : String(err));
+      });
 
     const handleMessage = async (event: MessageEvent<unknown>) => {
       if (!isValidBridgeOrigin(event.origin)) return;
@@ -96,7 +143,15 @@ export const App: React.FC = () => {
         switch (message.type) {
           case 'LOAD_SCENE': {
             const { nodes, rootNodeIds } = message.scene;
-            useScene.getState().setScene(nodes as any, rootNodeIds as any);
+            pendingSceneRef.current = { nodes, rootNodeIds };
+
+            if (onLoadResolverRef.current) {
+              onLoadResolverRef.current({ nodes, rootNodeIds });
+              onLoadResolverRef.current = null;
+            } else {
+              useScene.getState().setScene(nodes as any, rootNodeIds as any);
+            }
+
             if (message.readOnly !== undefined) {
               useScene.getState().setReadOnly(message.readOnly);
             }
@@ -176,29 +231,71 @@ export const App: React.FC = () => {
     });
   };
 
+  /**
+   * Required host prop for @pascal-app/editor
+   * Resolves immediately with starter scene in standalone mode (:5174).
+   * In iframe mode, awaits LOAD_SCENE with a 2-second fallback timeout.
+   */
+  const handleEditorLoad = async () => {
+    if (isStandalone) {
+      return createStarterScene() as any;
+    }
+
+    if (pendingSceneRef.current) {
+      const scene = pendingSceneRef.current;
+      pendingSceneRef.current = null;
+      return scene;
+    }
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        onLoadResolverRef.current = null;
+        resolve(createStarterScene() as any);
+      }, 2000);
+
+      onLoadResolverRef.current = (scene) => {
+        clearTimeout(timeout);
+        resolve(scene);
+      };
+    });
+  };
+
+  const handleEditorSave = async (scene: any) => {
+    sendToHost({
+      type: 'SCENE_DIRTY',
+      dirty: false,
+    });
+  };
+
+  if (initError) {
+    return (
+      <div className="flex h-screen w-screen flex-col items-center justify-center bg-slate-950 p-6 text-slate-100 font-mono">
+        <div className="max-w-md rounded-xl border border-rose-500/60 bg-rose-950/40 p-6 shadow-xl">
+          <h2 className="text-base font-bold text-rose-300">Pascal Plugin Initialization Failed</h2>
+          <p className="mt-2 text-xs text-rose-200">{initError}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div style={{ width: '100vw', height: '100vh', margin: 0, padding: 0, overflow: 'hidden' }}>
+    <div className="w-full h-full overflow-hidden bg-slate-950">
       <StudioErrorBoundary onError={handleStudioError}>
         {ready ? (
           viewMode === 'viewer' ? (
             <Viewer />
           ) : (
-            <Editor />
+            <Editor
+              onLoad={handleEditorLoad}
+              onSave={handleEditorSave}
+            />
           )
         ) : (
-          <div
-            style={{
-              width: '100%',
-              height: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#94a3b8',
-              fontFamily: 'sans-serif',
-              fontSize: '14px',
-            }}
-          >
-            Initializing Pascal 3D Studio...
+          <div className="flex h-full w-full items-center justify-center text-slate-400 font-mono text-xs">
+            <div className="flex items-center gap-2">
+              <span className="inline-block w-2 h-2 rounded-full bg-sky-400 animate-ping" />
+              <span>Initializing Pascal 3D Studio...</span>
+            </div>
           </div>
         )}
       </StudioErrorBoundary>

@@ -13,6 +13,10 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": true,
+    "paths": {
+      "react": ["./node_modules/@types/react"],
+      "react-dom": ["./node_modules/@types/react-dom"]
+    },
     "rootDir": "src",
     "noUnusedLocals": true,
     "noUnusedParameters": true,

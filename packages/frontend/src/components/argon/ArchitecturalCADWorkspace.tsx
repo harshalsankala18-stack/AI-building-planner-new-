@@ -14,6 +14,8 @@ import { ArchLangPresentationSheet } from '../cad/ArchLangPresentationSheet';
 import { PascalStudioFrame } from '../model-3d/PascalStudioFrame';
 import { ModelWorkspace } from '../model-3d/ModelWorkspace';
 
+export type StudioWorkspaceMode = 'engineering' | 'archlang' | '3d-standard' | '3d-pascal' | 'split-view';
+
 export interface ArchitecturalCADWorkspaceProps {
   editor: EditorContextValue;
   onRegeneratePlan?: () => void;
@@ -21,6 +23,8 @@ export interface ArchitecturalCADWorkspaceProps {
   generationSeed?: number;
   isGenerating?: boolean;
   canRegenerate?: boolean;
+  mode?: StudioWorkspaceMode;
+  onModeChange?: (mode: StudioWorkspaceMode) => void;
 }
 
 export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps> = ({
@@ -30,12 +34,18 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
   generationSeed = 1,
   isGenerating = false,
   canRegenerate = true,
+  mode,
+  onModeChange,
 }) => {
   const aiTelemetry = editor.building.metadata.generationBrief?.aiTelemetry;
   const activeArchetype = editor.building.metadata.generationBrief?.archetype;
   const activeMassingShape = editor.building.metadata.generationBrief?.buildingMassingShape;
-  type StudioWorkspaceMode = 'engineering' | 'archlang' | '3d-standard' | '3d-pascal' | 'split-view';
-  const [workspaceMode, setWorkspaceMode] = useState<StudioWorkspaceMode>('engineering');
+  const [internalMode, setInternalMode] = useState<StudioWorkspaceMode>('engineering');
+  const workspaceMode = mode ?? internalMode;
+  const setWorkspaceMode = (nextMode: StudioWorkspaceMode) => {
+    setInternalMode(nextMode);
+    onModeChange?.(nextMode);
+  };
   const [sync3dCount, setSync3dCount] = useState<number>(0);
   const [lockedRoomIds, setLockedRoomIds] = useState<string[]>([]);
   const [entityLayers, setEntityLayers] = useState({ columns: false, beams: false, furniture: true });
@@ -142,7 +152,7 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
               : 'text-slate-300 hover:text-white'
               }`}
           >
-            3D Pascal Studio
+            3D Pascal Studio (Edit)
           </button>
           <button
             type="button"

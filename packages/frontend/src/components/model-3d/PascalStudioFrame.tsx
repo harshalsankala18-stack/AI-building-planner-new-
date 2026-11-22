@@ -407,6 +407,7 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
           src="/pascal-studio/"
           title="Pascal 3D Studio"
           className="w-full h-full border-0"
+          style={{ width: '100%', height: '100%', minHeight: '600px', border: 0 }}
           allow="accelerometer; camera; encrypted-media; gyroscope; microphone"
         />
 

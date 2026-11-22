@@ -16,11 +16,12 @@ import {
   Plus,
   Check,
   Edit3,
+  Sparkles,
 } from 'lucide-react';
 import { useEditorStore } from '../../stores/editor-store';
 import { ProjectSetupWizard, type ProjectSetupWizardData } from './ProjectSetupWizard';
 import { RHWelcomeScreen } from '../studio/RHWelcomeScreen';
-import { ArchitecturalCADWorkspace } from './ArchitecturalCADWorkspace';
+import { ArchitecturalCADWorkspace, type StudioWorkspaceMode } from './ArchitecturalCADWorkspace';
 import { InteractivePlanEditorPage } from './InteractivePlanEditorPage';
 import { FloorIsometricEditor } from './FloorIsometricEditor';
 import { Building3DCustomizer } from './Building3DCustomizer';
@@ -30,7 +31,7 @@ import { ExportCenterWorkspace } from './ExportCenterWorkspace';
 import { GenerationProgressModal } from './GenerationProgressModal';
 import { SystemStatusIndicator } from '../common/SystemStatusIndicator';
 import { JobTracker } from '../common/JobTracker';
-import { projectStorage } from '../../services/storage';
+import { projectStorage, createCanonical30x50_2BHK } from '../../services/storage';
 import {
   type executeAuditedPlanningPipeline,
   type PipelineStageProgressEvent,
@@ -57,21 +58,88 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
 }) => {
   const editor = useEditorStore();
   const [activeWorkspace, setActiveWorkspace] = useState<ArgonWorkspaceId>('setup');
+  const [cadStudioMode, setCadStudioMode] = useState<StudioWorkspaceMode>('3d-pascal');
   const [isProjectSwitcherOpen, setIsProjectSwitcherOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [pipelineProgress, setPipelineProgress] = useState<PipelineStageProgressEvent | null>(null);
 
   const projectList = projectStorage.list();
 
+  const primaryStudioTabs: Array<{
+    id: string;
+    label: string;
+    icon: React.ReactNode;
+    isActive: boolean;
+    onClick: () => void;
+  }> = [
+    {
+      id: '2d-engineering',
+      label: '2D Engineering',
+      icon: <DraftingCompass className="w-4 h-4" />,
+      isActive: activeWorkspace === 'cad_2d' && cadStudioMode === 'engineering',
+      onClick: () => {
+        setActiveWorkspace('cad_2d');
+        setCadStudioMode('engineering');
+      },
+    },
+    {
+      id: '2d-archlang',
+      label: '2D Presentation (ArchLang)',
+      icon: <Layers className="w-4 h-4 text-emerald-400" />,
+      isActive: activeWorkspace === 'cad_2d' && cadStudioMode === 'archlang',
+      onClick: () => {
+        setActiveWorkspace('cad_2d');
+        setCadStudioMode('archlang');
+      },
+    },
+    {
+      id: '3d-standard',
+      label: '3D Standard',
+      icon: <Box className="w-4 h-4 text-cyan-400" />,
+      isActive: activeWorkspace === 'cad_2d' && cadStudioMode === '3d-standard',
+      onClick: () => {
+        setActiveWorkspace('cad_2d');
+        setCadStudioMode('3d-standard');
+      },
+    },
+    {
+      id: '3d-pascal',
+      label: '3D Pascal Studio (Edit)',
+      icon: <Box className="w-4 h-4 text-sky-400" />,
+      isActive: activeWorkspace === 'cad_2d' && cadStudioMode === '3d-pascal',
+      onClick: () => {
+        setActiveWorkspace('cad_2d');
+        setCadStudioMode('3d-pascal');
+      },
+    },
+    {
+      id: 'split-view',
+      label: 'Split View (2D + 3D)',
+      icon: <DraftingCompass className="w-4 h-4 text-indigo-400" />,
+      isActive: activeWorkspace === 'cad_2d' && cadStudioMode === 'split-view',
+      onClick: () => {
+        setActiveWorkspace('cad_2d');
+        setCadStudioMode('split-view');
+      },
+    },
+    {
+      id: 'export-center',
+      label: 'Export Center',
+      icon: <Download className="w-4 h-4 text-amber-400" />,
+      isActive: activeWorkspace === 'export',
+      onClick: () => {
+        setActiveWorkspace('export');
+      },
+    },
+  ];
+
   const workspaces: Array<{ id: ArgonWorkspaceId; label: string; icon: React.ReactNode }> = [
-    { id: 'setup', label: '01 • Setup Wizard', icon: <Compass className="w-4 h-4" /> },
-    { id: 'cad_2d', label: '02 • 2D CAD Studio', icon: <DraftingCompass className="w-4 h-4" /> },
-    { id: 'edit_plan', label: '03 • Edit Plan', icon: <Edit3 className="w-4 h-4" /> },
-    { id: 'isometric', label: '04 • Floor Editor', icon: <Layers className="w-4 h-4" /> },
-    { id: 'building_3d', label: '05 • 3D Building', icon: <Box className="w-4 h-4" /> },
-    { id: 'structural_cad', label: '06 • Structural CAD', icon: <Building2 className="w-4 h-4" /> },
-    { id: 'engineering', label: '07 • Engineering', icon: <ShieldCheck className="w-4 h-4" /> },
-    { id: 'export', label: '08 • Export Center', icon: <Download className="w-4 h-4" /> },
+    { id: 'setup', label: 'Setup Wizard', icon: <Compass className="w-4 h-4" /> },
+    { id: 'edit_plan', label: 'Edit Plan', icon: <Edit3 className="w-4 h-4" /> },
+    { id: 'isometric', label: 'Floor Editor', icon: <Layers className="w-4 h-4" /> },
+    { id: 'building_3d', label: '3D Building', icon: <Box className="w-4 h-4" /> },
+    { id: 'structural_cad', label: 'Structural CAD', icon: <Building2 className="w-4 h-4" /> },
+    { id: 'engineering', label: 'Engineering', icon: <ShieldCheck className="w-4 h-4" /> },
   ];
 
   const workerRef = useRef<Worker | null>(null);
@@ -181,6 +249,18 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
     setShowWelcome(false);
   };
 
+  const handleOpenDemoProject = () => {
+    const demoBuilding = createCanonical30x50_2BHK('Demo Architectural Project', 'proj-demo-canonical');
+    editor.setBuilding(demoBuilding, 'Demo Architectural Project');
+    const firstResidential = demoBuilding.floors.find((f) => f.apartmentUnits?.length) || demoBuilding.floors[0];
+    if (firstResidential) {
+      editor.switchFloor(firstResidential.id);
+    }
+    setActiveWorkspace('cad_2d');
+    setCadStudioMode('3d-pascal');
+    dismissWelcome();
+  };
+
   return (
     <div className="argon-shell flex flex-col h-screen w-screen bg-argon-bg text-argon-text overflow-hidden font-sans relative">
       {showWelcome && (
@@ -192,8 +272,10 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
           }}
           onExplore={() => {
             dismissWelcome();
-            setActiveWorkspace('building_3d');
+            setActiveWorkspace('cad_2d');
+            setCadStudioMode('3d-pascal');
           }}
+          onOpenDemo={handleOpenDemoProject}
         />
       )}
       {/* STRICTLY ONE UNIFIED TOP HEADER BAR (H-14) */}
@@ -210,6 +292,16 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
           </div>
 
           <div className="h-6 w-px bg-argon-border" />
+
+          <button
+            data-testid="header-open-demo-btn"
+            onClick={handleOpenDemoProject}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black uppercase tracking-wider transition shadow-2xs cursor-pointer"
+            title="Instant load demo architectural project into 3D Pascal Studio"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Open Demo Project</span>
+          </button>
 
           <div className="relative">
             <button
@@ -277,22 +369,50 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
           </div>
         </div>
 
-        {/* Center: Workspace Switcher */}
-        <nav className="flex items-center gap-1 bg-argon-surface/80 p-1 rounded-xl border border-argon-border">
-          {workspaces.map((ws) => (
+        {/* Center: 6 Primary Studio Tabs */}
+        <nav
+          className="flex items-center gap-1 bg-argon-surface/90 p-1 rounded-xl border border-argon-border shadow-xs"
+          role="tablist"
+          aria-label="Studio Mode Tabs"
+        >
+          {primaryStudioTabs.map((tab) => (
             <button
-              key={ws.id}
-              onClick={() => setActiveWorkspace(ws.id)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeWorkspace === ws.id
-                  ? 'bg-argon-btn text-argon-card shadow-xs'
+              key={tab.id}
+              role="tab"
+              aria-selected={tab.isActive}
+              data-testid={`top-tab-${tab.id}`}
+              onClick={tab.onClick}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                tab.isActive
+                  ? 'bg-argon-btn text-argon-card shadow-xs ring-1 ring-white/10'
                   : 'text-argon-muted hover:text-argon-text hover:bg-argon-surface'
               }`}
             >
-              {ws.icon}
-              <span className="whitespace-nowrap">{ws.label}</span>
+              {tab.icon}
+              <span className="whitespace-nowrap">{tab.label}</span>
             </button>
           ))}
+          <div className="relative group">
+            <button
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-argon-muted hover:text-argon-text hover:bg-argon-surface transition-colors cursor-pointer"
+              title="Additional Workspaces"
+            >
+              <span>More</span>
+              <ChevronDown className="w-3 h-3" />
+            </button>
+            <div className="absolute top-full left-0 mt-1 hidden group-hover:flex flex-col w-44 bg-argon-card border border-argon-border rounded-xl shadow-xl z-50 p-1">
+              {workspaces.map((ws) => (
+                <button
+                  key={ws.id}
+                  onClick={() => setActiveWorkspace(ws.id)}
+                  className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-argon-muted hover:text-argon-text hover:bg-argon-surface rounded-lg text-left transition-colors cursor-pointer"
+                >
+                  {ws.icon}
+                  <span>{ws.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         </nav>
 
         {/* Right: Tools & Profile */}
@@ -323,7 +443,11 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
         {activeWorkspace === 'setup' && (
           <ProjectSetupWizard
             onGenerate={handleGenerate}
-            onCancel={() => setActiveWorkspace('cad_2d')}
+            onCancel={() => {
+              setActiveWorkspace('cad_2d');
+              setCadStudioMode('3d-pascal');
+            }}
+            onOpenDemo={handleOpenDemoProject}
           />
         )}
         {activeWorkspace === 'cad_2d' && (
@@ -334,6 +458,8 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
             generationSeed={generationSeed}
             isGenerating={isGenerating}
             canRegenerate={Boolean(lastBrief.current)}
+            mode={cadStudioMode}
+            onModeChange={setCadStudioMode}
           />
         )}
         {activeWorkspace === 'edit_plan' && (
