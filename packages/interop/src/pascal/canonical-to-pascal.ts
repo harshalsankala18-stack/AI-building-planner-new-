@@ -61,16 +61,12 @@ export function canonicalToPascal(building: Building): CanonicalToPascalResult {
         [0, (building.site?.plotDepth ?? 25000) / 1000],
       ];
 
-  if (building.site?.siteZones && building.site.siteZones.length > 0) {
-    warnings.push(
-      `Site zones (${building.site.siteZones.map(z => `${z.name} [${z.kind}]`).join(', ')}) cannot be mapped natively to Pascal SiteNode schema in Phase 1.`
-    );
-  }
-  if (building.site?.accessPoints && building.site.accessPoints.length > 0) {
-    warnings.push(
-      `Site access points (${building.site.accessPoints.map(a => a.id).join(', ')}) recorded as warnings; not directly represented in Pascal SiteNode.`
-    );
-  }
+  // Site metadata: preserve siteZones and accessPoints as typed metadata
+  const siteMetadata: Record<string, unknown> = {
+    canonicalId: building.site?.id ?? 'default-site',
+    siteZones: building.site?.siteZones ?? [],
+    accessPoints: building.site?.accessPoints ?? [],
+  };
 
   const buildingId = toPascalId('building', building.id);
 
@@ -294,11 +290,44 @@ export function canonicalToPascal(building: Building): CanonicalToPascalResult {
       }
     }
 
-    // 2f. Stairs (warn unmapped)
+    // 2f. Stairs (mapped to visible stepped architectural slab nodes)
     if (floor.stairs && floor.stairs.length > 0) {
-      warnings.push(
-        `Floor ${floor.name} contains ${floor.stairs.length} stair(s) (${floor.stairs.map(s => s.id).join(', ')}). Full parametric 3D stairs require specialized procedural stair runs not mapped in Phase 1.`
-      );
+      for (const stair of floor.stairs) {
+        const stairId = toPascalId('slab', `stair_${stair.id}`);
+        let stairPoints: [number, number][];
+        if (stair.boundary?.points && stair.boundary.points.length >= 3) {
+          stairPoints = stair.boundary.points.map(p => [p.x / 1000, p.y / 1000] as [number, number]);
+        } else {
+          const sx = (stair.x ?? 0) / 1000;
+          const sy = (stair.y ?? 0) / 1000;
+          const sw = (stair.width ?? 1200) / 1000;
+          const sl = (stair.length ?? 3000) / 1000;
+          stairPoints = [
+            [sx, sy],
+            [sx + sw, sy],
+            [sx + sw, sy + sl],
+            [sx, sy + sl],
+          ];
+        }
+
+        const stairSlab = SlabNode.parse({
+          id: stairId,
+          name: `Stair Core ${stair.id}`,
+          parentId: levelId,
+          polygon: stairPoints,
+          thickness: Math.max(0.15, floorHeightM * 0.4),
+          metadata: {
+            canonicalId: stair.id,
+            elementKind: 'staircase',
+            stairType: stair.type ?? 'dog-legged',
+            risers: stair.riserCount ?? 18,
+            treadDepthMm: stair.treadDepth ?? 250,
+          },
+        });
+
+        nodes[stairId] = stairSlab;
+        levelChildren.push(stairId);
+      }
     }
 
     // 2g. Level Node Creation
@@ -339,6 +368,7 @@ export function canonicalToPascal(building: Building): CanonicalToPascalResult {
       points: sitePoints,
     },
     children: [buildingId],
+    metadata: siteMetadata,
   });
   nodes[siteId] = siteNode;
 

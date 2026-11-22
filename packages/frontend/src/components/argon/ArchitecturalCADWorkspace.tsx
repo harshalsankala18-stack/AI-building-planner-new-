@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { RefreshCw, Columns } from 'lucide-react';
 import type { EngineeringOverlay } from '@ai-floor-planner/core';
 import {
   GeometryValidator,
@@ -10,6 +11,8 @@ import { PropertyInspector } from '../inspector/PropertyInspector';
 import { requestVerifiedExport, downloadVerifiedExport } from '../../services/export-client';
 import type { WorkspaceLayer } from '../workspace/BuildingNavigator';
 import { ArchLangPresentationSheet } from '../cad/ArchLangPresentationSheet';
+import { PascalStudioFrame } from '../model-3d/PascalStudioFrame';
+import { ModelWorkspace } from '../model-3d/ModelWorkspace';
 
 export interface ArchitecturalCADWorkspaceProps {
   editor: EditorContextValue;
@@ -31,7 +34,9 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
   const aiTelemetry = editor.building.metadata.generationBrief?.aiTelemetry;
   const activeArchetype = editor.building.metadata.generationBrief?.archetype;
   const activeMassingShape = editor.building.metadata.generationBrief?.buildingMassingShape;
-  const [workspaceMode, setWorkspaceMode] = useState<'engineering' | 'archlang'>('engineering');
+  type StudioWorkspaceMode = 'engineering' | 'archlang' | '3d-standard' | '3d-pascal' | 'split-view';
+  const [workspaceMode, setWorkspaceMode] = useState<StudioWorkspaceMode>('engineering');
+  const [sync3dCount, setSync3dCount] = useState<number>(0);
   const [lockedRoomIds, setLockedRoomIds] = useState<string[]>([]);
   const [entityLayers, setEntityLayers] = useState({ columns: false, beams: false, furniture: true });
   const [disciplines, setDisciplines] = useState<Record<EngineeringOverlay, boolean>>({
@@ -107,7 +112,7 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
               : 'text-slate-300 hover:text-white'
               }`}
           >
-            Engineering CAD
+            2D Engineering
           </button>
           <button
             type="button"
@@ -117,7 +122,38 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
               : 'text-slate-300 hover:text-white'
               }`}
           >
-            Presentation Sheet (ArchLang)
+            2D Presentation (ArchLang)
+          </button>
+          <button
+            type="button"
+            onClick={() => setWorkspaceMode('3d-standard')}
+            className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${workspaceMode === '3d-standard'
+              ? 'bg-cyan-500 text-slate-950 shadow'
+              : 'text-slate-300 hover:text-white'
+              }`}
+          >
+            3D Standard
+          </button>
+          <button
+            type="button"
+            onClick={() => setWorkspaceMode('3d-pascal')}
+            className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${workspaceMode === '3d-pascal'
+              ? 'bg-sky-500 text-slate-950 shadow'
+              : 'text-slate-300 hover:text-white'
+              }`}
+          >
+            3D Pascal Studio
+          </button>
+          <button
+            type="button"
+            onClick={() => setWorkspaceMode('split-view')}
+            className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${workspaceMode === 'split-view'
+              ? 'bg-indigo-500 text-white shadow'
+              : 'text-slate-300 hover:text-white'
+              }`}
+          >
+            <Columns className="w-3.5 h-3.5" />
+            <span>Split View (2D + 3D)</span>
           </button>
         </div>
         {onRegeneratePlan && (
@@ -239,14 +275,81 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
           </div>
         )}
       </div>
-      {workspaceMode === 'archlang' ? (
+      {workspaceMode === 'archlang' && (
         <ArchLangPresentationSheet
           building={editor.building}
           floorId={editor.activeFloor.id}
           lockedRoomIds={lockedRoomIds}
           onLockedRoomsChange={setLockedRoomIds}
         />
-      ) : (
+      )}
+
+      {workspaceMode === '3d-standard' && (
+        <div className="flex-1 min-h-0 relative">
+          <ModelWorkspace
+            building={editor.building}
+            activeFloorId={editor.activeFloor.id}
+            selection={editor.selection}
+            onSelectEntity={editor.selectEntity}
+            onClearSelection={editor.clearSelection}
+            onSwitchFloor={editor.switchFloor}
+            onApplyBuilding={editor.applyRefinement}
+            generationControl={editor.generationControl}
+          />
+        </div>
+      )}
+
+      {workspaceMode === '3d-pascal' && (
+        <div className="flex-1 min-h-0 relative">
+          <PascalStudioFrame
+            projectId={editor.building.projectId}
+            reloadKey={sync3dCount}
+            onFallbackToStandard={() => setWorkspaceMode('3d-standard')}
+          />
+        </div>
+      )}
+
+      {workspaceMode === 'split-view' && (
+        <div className="flex min-h-0 flex-1 flex-col lg:flex-row overflow-hidden border-t border-slate-800">
+          <div className="flex-1 min-w-0 min-h-[350px] border-b lg:border-b-0 lg:border-r border-slate-800 flex flex-col">
+            <div className="px-3 py-1.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-xs">
+              <span className="font-semibold text-emerald-400">2D Presentation Plan (ArchLang)</span>
+              <span className="text-[10px] text-slate-400">Room locks & verified compile</span>
+            </div>
+            <div className="flex-1 min-h-0">
+              <ArchLangPresentationSheet
+                building={editor.building}
+                floorId={editor.activeFloor.id}
+                lockedRoomIds={lockedRoomIds}
+                onLockedRoomsChange={setLockedRoomIds}
+              />
+            </div>
+          </div>
+          <div className="flex-1 min-w-0 min-h-[350px] flex flex-col">
+            <div className="px-3 py-1.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-xs">
+              <span className="font-semibold text-sky-400">3D Pascal Studio</span>
+              <button
+                type="button"
+                onClick={() => setSync3dCount((c) => c + 1)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-sky-950 hover:bg-sky-900 text-sky-300 border border-sky-800 text-[11px] font-semibold transition"
+                title="Sync 2D Plan modifications into 3D Scene"
+              >
+                <RefreshCw className="w-3 h-3 text-sky-400" />
+                <span>Sync 2D → 3D Studio</span>
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <PascalStudioFrame
+                projectId={editor.building.projectId}
+                reloadKey={sync3dCount}
+                onFallbackToStandard={() => setWorkspaceMode('3d-standard')}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {workspaceMode === 'engineering' && (
         <>
           <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
             <div className="relative min-h-[320px] min-w-0 flex-1">

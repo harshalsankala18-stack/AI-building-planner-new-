@@ -10,6 +10,8 @@ import {
   type VerifiedExportOptions,
 } from '../../services/export-client';
 import { requestArchLangExport, fetchArchLangPreview } from '../../services/archlang-client';
+import { useSystemCapabilities } from '../../services/useSystemCapabilities';
+import { jobTrackerService } from '../common/JobTracker';
 
 export const ExportCenterWorkspace: React.FC<{ editor: EditorContextValue }> = ({ editor }) => {
   const { building } = editor;
@@ -27,6 +29,29 @@ export const ExportCenterWorkspace: React.FC<{ editor: EditorContextValue }> = (
   const [blenderStatus, setBlenderStatus] = useState<'IDLE' | 'GENERATING' | 'VERIFIED' | 'FAILED'>('IDLE');
   const [blenderManifest, setBlenderManifest] = useState<{ jobId: string; files: any[] } | null>(null);
   const [blenderError, setBlenderError] = useState<string>('');
+  const { capabilities } = useSystemCapabilities();
+  const windowsCadStatus = capabilities?.capabilities?.windowsCadRunner ?? 'unavailable';
+
+  const enqueueJob = async (jobType: string, payload: any) => {
+    try {
+      setBusy(`job-${jobType}`);
+      const res = await fetch(`/api/projects/${encodeURIComponent(building.projectId)}/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobType, payload }),
+      });
+      if (!res.ok) {
+        throw new Error(`Enqueue failed (${res.status})`);
+      }
+      const data = await res.json();
+      jobTrackerService.addJob(data.jobId, jobType, data.queue);
+    } catch (e: any) {
+      setError(`Failed to enqueue background job: ${e.message}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const [archlangFloorId, setArchlangFloorId] = useState<string>(building.floors[0]?.id ?? '');
   const [archlangAutoFurnish, setArchlangAutoFurnish] = useState(true);
   const [archlangCirculation, setArchlangCirculation] = useState(false);
@@ -310,7 +335,20 @@ export const ExportCenterWorkspace: React.FC<{ editor: EditorContextValue }> = (
                     >
                       Independent Download
                     </button>
+                    <button
+                      disabled={busy !== null}
+                      onClick={() => void enqueueJob('cad-export', { format, ...row.options })}
+                      className="rounded bg-slate-800 hover:bg-slate-700 px-2.5 py-2 text-xs text-slate-300 border border-slate-700"
+                      title="Run asynchronously in background compute worker queue"
+                    >
+                      Enqueue Async
+                    </button>
                   </div>
+                  {format === 'dwg' && windowsCadStatus === 'unavailable' && (
+                    <div className="mt-2 flex items-center gap-1.5 text-[11px] text-amber-300 bg-amber-950/50 px-2.5 py-1 rounded border border-amber-800/80">
+                      <span>Requires Windows Worker — Use ArchLang DXF/PDF or Pascal 3D below</span>
+                    </div>
+                  )}
                   <p className="mt-2 break-all text-xs text-slate-400">
                     {busy === key
                       ? 'GENERATING / VERIFYING'

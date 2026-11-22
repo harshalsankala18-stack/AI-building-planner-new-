@@ -3,6 +3,7 @@ import {
   applyPascalOperations,
   type PascalSceneOperation,
   type PascalMutationResult,
+  attachNormalizedUnitContext,
 } from '@ai-floor-planner/interop';
 import { AITaskType } from '@ai-floor-planner/core';
 import type { BaseAIProvider } from '../providers/base';
@@ -242,11 +243,12 @@ export class PascalAIEditor {
             .filter(Boolean)
             .join('\n');
 
+          const promptWithUnits = attachNormalizedUnitContext(request.prompt);
           const response = await this.provider.complete({
             taskType: AITaskType.NaturalLanguageEdit,
-            prompt: `Prompt: ${request.prompt}`,
+            prompt: `Prompt: ${promptWithUnits}`,
             systemPrompt,
-            userPrompt: `Prompt: ${request.prompt}`,
+            userPrompt: `Prompt: ${promptWithUnits}`,
             temperature: 0.1,
           } as any);
 

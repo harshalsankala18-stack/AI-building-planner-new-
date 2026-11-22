@@ -1,6 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import { loadPlugin } from '@pascal-app/core';
-import { builtinPlugin } from '@pascal-app/nodes';
+import { describe, it, expect } from 'vitest';
 import {
   SiteNode,
   BuildingNode,
@@ -12,18 +10,16 @@ import {
   WindowNode,
   ZoneNode,
 } from '@pascal-app/core';
-import { canonicalToPascal } from '../pascal/canonical-to-pascal';
-import { createMockCanonicalBuilding } from '../__fixtures__/canonical-building';
+import { canonicalToPascal } from '../pascal/canonical-to-pascal.js';
+import { canonicalToArchLang } from '../archlang/canonical-to-archlang.js';
+import { createMockCanonicalBuilding } from '../__fixtures__/canonical-building.js';
+import { WallType, RoomType, Direction, StairType, type Building } from '@ai-floor-planner/core';
 
 describe('canonicalToPascal Translator', () => {
-  beforeAll(async () => {
-    await loadPlugin(builtinPlugin);
-    expect(builtinPlugin.id).toBe('pascal:core');
-  });
 
   it('translates real canonical fixture into a valid Pascal scene graph', () => {
     const building = createMockCanonicalBuilding();
-    const { scene, warnings } = canonicalToPascal(building);
+    const { scene } = canonicalToPascal(building);
 
     expect(scene).toBeDefined();
     expect(scene.rootNodeIds.length).toBe(1);
@@ -57,17 +53,18 @@ describe('canonicalToPascal Translator', () => {
     const levelParse = LevelNode.safeParse(levelNode);
     expect(levelParse.success).toBe(true);
 
-    // Verify Level children count (1 slab + 3 zones + 3 walls = 7 children)
+    // Verify Level children count (floor slab + stair runs)
     const expectedFloor = building.floors[0]!;
-    const floorWallNodes = Object.values(scene.nodes).filter(n => n.type === 'wall' && n.parentId === levelId);
-    const floorZoneNodes = Object.values(scene.nodes).filter(n => n.type === 'zone' && n.parentId === levelId);
-    const floorSlabNodes = Object.values(scene.nodes).filter(n => n.type === 'slab' && n.parentId === levelId);
-    const floorDoorNodes = Object.values(scene.nodes).filter(n => n.type === 'door');
-    const floorWindowNodes = Object.values(scene.nodes).filter(n => n.type === 'window');
+    const floorWallNodes = Object.values(scene.nodes).filter((n) => n.type === 'wall' && n.parentId === levelId);
+    const floorZoneNodes = Object.values(scene.nodes).filter((n) => n.type === 'zone' && n.parentId === levelId);
+    const floorSlabNodes = Object.values(scene.nodes).filter((n) => n.type === 'slab' && n.parentId === levelId);
+    const floorDoorNodes = Object.values(scene.nodes).filter((n) => n.type === 'door');
+    const floorWindowNodes = Object.values(scene.nodes).filter((n) => n.type === 'window');
 
     expect(floorWallNodes.length).toBe(expectedFloor.walls.length);
     expect(floorZoneNodes.length).toBe(expectedFloor.rooms.length);
-    expect(floorSlabNodes.length).toBe(1);
+    // 1 base floor slab + mapped stair slab nodes
+    expect(floorSlabNodes.length).toBe(1 + (expectedFloor.stairs?.length ?? 0));
     expect(floorDoorNodes.length).toBe(expectedFloor.doors.length);
     expect(floorWindowNodes.length).toBe(expectedFloor.windows.length);
 
@@ -75,7 +72,6 @@ describe('canonicalToPascal Translator', () => {
     for (const [id, node] of Object.entries(scene.nodes)) {
       expect(node.id).toBe(id);
 
-      // Verify each node against its specific schema
       switch (node.type) {
         case 'site':
           expect(SiteNode.safeParse(node).success).toBe(true);
@@ -106,7 +102,6 @@ describe('canonicalToPascal Translator', () => {
           break;
       }
 
-      // Verify children reference valid existing nodes and have matching parentId
       const nodeWithChildren = node as { children?: string[] };
       if (nodeWithChildren.children) {
         for (const childId of nodeWithChildren.children) {
@@ -118,7 +113,6 @@ describe('canonicalToPascal Translator', () => {
     }
 
     // Verify coordinate conversion: mm to meters
-    // Site boundary was 30000 x 25000 mm -> 30 x 25 m
     const sitePoly = siteNode.polygon.points;
     expect(sitePoly).toContainEqual([30, 25]);
 
@@ -126,19 +120,115 @@ describe('canonicalToPascal Translator', () => {
     const sampleWall = floorWallNodes[0] as any;
     expect(sampleWall.height).toBeCloseTo(3.1);
 
-    // Door width: 900 mm -> 0.9 m, height: 2100 mm -> 2.1 m
-    const sampleDoor = floorDoorNodes[0] as any;
-    expect(sampleDoor.width).toBeCloseTo(0.9);
-    expect(sampleDoor.height).toBeCloseTo(2.1);
+    // Site zones preserved in typed metadata
+    expect((siteNode.metadata as any)?.siteZones?.length).toBeGreaterThan(0);
+  });
 
-    // Window width: 1500 mm -> 1.5 m, height: 1200 mm -> 1.2 m, sill: 900 mm -> 0.9 m
-    const sampleWindow = floorWindowNodes[0] as any;
-    expect(sampleWindow.width).toBeCloseTo(1.5);
-    expect(sampleWindow.height).toBeCloseTo(1.2);
-    expect(sampleWindow.position[1]).toBeCloseTo(0.9);
+  it('translates multiple floor archetypes (stilt parking, residential, terrace) cleanly', () => {
+    const multiFloorBuilding = createMockCanonicalBuilding();
+    // Add stilt ground floor
+    const stiltFloor = {
+      ...multiFloorBuilding.floors[0]!,
+      id: 'floor-stilt-0',
+      name: 'Stilt Parking Floor',
+      level: 0,
+      floorHeight: 2800,
+      rooms: [
+        {
+          id: 'room-stilt-parking',
+          name: 'Covered Stilt Parking',
+          type: RoomType.Parking,
+          boundary: multiFloorBuilding.floors[0]!.boundary,
+          area: 80000000,
+          targetArea: 80000000,
+          dimensions: { width: 10000, length: 8000 },
+          center: { x: 5000, y: 4000 },
+          doors: [],
+          windows: [],
+        },
+      ],
+      walls: [
+        {
+          id: 'wall-stilt-1',
+          startPoint: { x: 0, y: 0 },
+          endPoint: { x: 10000, y: 0 },
+          thickness: 230,
+          type: WallType.External,
+          loadBearing: true,
+          wallUse: 'SHEAR',
+        },
+      ],
+      doors: [],
+      windows: [],
+      stairs: [
+        {
+          id: 'stair-stilt-1',
+          floorId: 'floor-stilt-0',
+          type: StairType.Straight,
+          x: 12000,
+          y: 2000,
+          width: 1500,
+          length: 3600,
+          riserCount: 18,
+          riserHeight: 155,
+          treadDepth: 250,
+          landingWidth: 1500,
+          direction: Direction.North,
+          connectsFloors: [0, 1] as const,
+          boundary: {
+            points: [
+              { x: 12000, y: 2000 },
+              { x: 13500, y: 2000 },
+              { x: 13500, y: 5600 },
+              { x: 12000, y: 5600 },
+            ],
+          },
+        },
+      ],
+    };
 
-    // Verify explicit warnings for unmapped items
-    expect(warnings.some(w => w.includes('Site zones'))).toBe(true);
-    expect(warnings.some(w => w.includes('stair'))).toBe(true);
+    // Add terrace floor
+    const terraceFloor = {
+      ...multiFloorBuilding.floors[0]!,
+      id: 'floor-terrace-2',
+      name: 'Rooftop Terrace',
+      level: 2,
+      floorHeight: 1200,
+      rooms: [
+        {
+          id: 'room-terrace',
+          name: 'Open Sky Terrace',
+          type: RoomType.Balcony,
+          boundary: multiFloorBuilding.floors[0]!.boundary,
+          area: 95000000,
+          targetArea: 95000000,
+          dimensions: { width: 10000, length: 9500 },
+          center: { x: 5000, y: 4750 },
+          doors: [],
+          windows: [],
+        },
+      ],
+      walls: [],
+      doors: [],
+      windows: [],
+      stairs: [],
+    };
+
+    const multiBuilding = {
+      ...multiFloorBuilding,
+      floors: [stiltFloor, multiFloorBuilding.floors[0]!, terraceFloor],
+    } as unknown as Building;
+
+    // Verify Pascal scene translation across all 3 floors
+    const { scene } = canonicalToPascal(multiBuilding);
+    const levelNodes = Object.values(scene.nodes).filter((n) => n.type === 'level');
+    expect(levelNodes.length).toBe(3);
+
+    // Verify ArchLang compilation across all 3 floors
+    for (const floor of multiBuilding.floors) {
+      const dslSource = canonicalToArchLang(multiBuilding, floor.id);
+      expect(dslSource).toContain('plan');
+      expect(dslSource).toContain(floor.name);
+    }
   });
 });

@@ -156,6 +156,7 @@ export {
 } from './apartment/layout-planner';
 export {
   apartmentExpectationFromManifest,
+  apartmentInterpretationContextFromManifest,
   schematicToApartmentStructure,
 } from './apartment/apartment-structure';
 export {
@@ -258,9 +259,11 @@ export {
 } from './orchestration/image-prompt-compiler';
 export {
   APARTMENT_IMAGE_INTERPRETATION_SCHEMA,
+  APARTMENT_INTERPRETATION_FRAME,
   interpretPlanImageWithGemini,
 } from './orchestration/vision-interpretation';
 export { runGeminiApartmentPreflight } from './orchestration/apartment-preflight';
+export { verifyImageQuality } from './orchestration/image-quality-gate';
 export { computeAspectAdaptedDimensions } from './orchestration/aspect-ratio';
 export {
   resolveApartmentReferenceBucket,

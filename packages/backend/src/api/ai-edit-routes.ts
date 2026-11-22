@@ -59,7 +59,11 @@ export async function handleAiEditRoute(
     try {
       const raw = await readBody(request);
       body = raw.length > 0 ? JSON.parse(raw) : {};
-    } catch {
+    } catch (err: any) {
+      if (err?.message?.toLowerCase().includes('payload too large') || err?.message?.toLowerCase().includes('too large')) {
+        sendJson(response, 413, { error: { code: 'PAYLOAD_TOO_LARGE', message: err.message } });
+        return true;
+      }
       sendJson(response, 400, { error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON.' } });
       return true;
     }
@@ -122,7 +126,11 @@ export async function handleAiEditRoute(
     try {
       const raw = await readBody(request);
       body = raw.length > 0 ? JSON.parse(raw) : {};
-    } catch {
+    } catch (err: any) {
+      if (err?.message?.toLowerCase().includes('payload too large') || err?.message?.toLowerCase().includes('too large')) {
+        sendJson(response, 413, { error: { code: 'PAYLOAD_TOO_LARGE', message: err.message } });
+        return true;
+      }
       sendJson(response, 400, { error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON.' } });
       return true;
     }

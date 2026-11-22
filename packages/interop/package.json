@@ -26,6 +26,10 @@
     "./archlang": {
       "types": "./dist/archlang/canonical-to-archlang.d.ts",
       "import": "./dist/archlang/canonical-to-archlang.js"
+    },
+    "./units": {
+      "types": "./dist/units/unit-normalizer.d.ts",
+      "import": "./dist/units/unit-normalizer.js"
     }
   },
   "scripts": {

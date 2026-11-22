@@ -30,11 +30,8 @@ RUN pnpm install --frozen-lockfile || pnpm install
 # Copy source tree
 COPY . .
 
-# Build packages and bundle production server
-RUN pnpm --filter @ai-floor-planner/interop build || true
-RUN node scripts/bundle-backend.mjs
-RUN pnpm --filter @ai-floor-planner/pascal-studio build
-RUN pnpm --filter @ai-floor-planner/frontend build
+# Run full topological build pipeline
+RUN node scripts/build-all.mjs
 
 # ------------------------------------------------------------------------------
 # Stage 2: Production Runtime
@@ -47,17 +44,21 @@ ENV NODE_ENV=production
 ENV PORT=4200
 ENV HOST=0.0.0.0
 
-# Copy bundled cjs server and assets
+# Copy bundled cjs server and static assets
 COPY --from=builder /app/packages/backend/dist-server /app/packages/backend/dist-server
 COPY --from=builder /app/packages/frontend/dist /app/packages/frontend/dist
 COPY --from=builder /app/packages/pascal-studio/dist /app/packages/pascal-studio/dist
 
+# Secure runtime permissions and run as non-root user
+RUN chown -R node:node /app
+USER node
+
 # Expose default HTTP API port
 EXPOSE 4200
 
-# Healthcheck
+# Healthcheck hitting capability-aware endpoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:4200/api/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1))"
+  CMD node -e "require('http').get('http://localhost:4200/api/health/capabilities', (res) => process.exit(res.statusCode === 200 ? 0 : 1))"
 
 # Start the bundled API & light worker server
 CMD ["node", "packages/backend/dist-server/server.cjs"]

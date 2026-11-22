@@ -114,3 +114,26 @@ export function schematicToApartmentStructure(schematic: DeterministicApartmentS
     openings,
   };
 }
+
+export function apartmentInterpretationContextFromManifest(
+  manifest: ApartmentGenerationManifest
+): {
+  readonly flatsPerFloor: number;
+  readonly unitMix: ReadonlyArray<{ readonly unitType: string; readonly count: number }>;
+  readonly lifts: number;
+  readonly stairs: number;
+  readonly commonLobby: boolean;
+} {
+  const counts = new Map<string, number>();
+  for (const u of manifest.units.units) {
+    counts.set(u.type, (counts.get(u.type) ?? 0) + 1);
+  }
+  const unitMix = Array.from(counts.entries()).map(([unitType, count]) => ({ unitType, count }));
+  return {
+    flatsPerFloor: manifest.units.exactCount,
+    unitMix,
+    lifts: manifest.commonCore.lifts,
+    stairs: manifest.commonCore.stairs,
+    commonLobby: manifest.commonCore.commonLobby,
+  };
+}

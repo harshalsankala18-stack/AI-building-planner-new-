@@ -3,6 +3,8 @@ import {
   toArchLangId,
   validateArchLang,
   type ArchLangDiagnostic,
+  normalizePromptUnits,
+  attachNormalizedUnitContext,
 } from '@ai-floor-planner/interop';
 import { AITaskType } from '@ai-floor-planner/core';
 import type { BaseAIProvider } from '../providers/base';
@@ -125,9 +127,12 @@ export function deterministicArchLangEdit(
         // If target room
         if (targetRoom && room.id === targetRoom.id) {
           if (!targetIsLocked || shouldViolateLockOnAttempt1) {
-            // Apply enlargement (+1000mm in width, +500mm in height)
-            const newW = room.width + 1000;
-            const newH = room.height + 500;
+            // Check if prompt specifies normalized dimensions
+            const unitNorm = normalizePromptUnits(prompt);
+            const deltaW = unitNorm.conversions.find(c => c.valueMm !== undefined)?.valueMm ?? 1000;
+            const deltaH = Math.round(deltaW * 0.5);
+            const newW = room.width + deltaW;
+            const newH = room.height + deltaH;
             line = `  room id=${room.id} at (${room.x}, ${room.y}) size ${newW}x${newH} label "${room.label}" uses ${room.uses}`;
           } else {
             // Self-healed: room is locked, keep unchanged!
@@ -233,10 +238,11 @@ export class ArchLangAIEditor {
             .filter(Boolean)
             .join('\n');
 
+          const promptWithUnits = attachNormalizedUnitContext(request.prompt);
           const response = await this.provider.complete({
             taskType: AITaskType.NaturalLanguageEdit,
             systemPrompt,
-            userPrompt: `Current Floor Plan DSL:\n${request.currentDsl}\n\nUser Edit Request: ${request.prompt}`,
+            userPrompt: `Current Floor Plan DSL:\n${request.currentDsl}\n\nUser Edit Request: ${promptWithUnits}`,
             temperature: 0.1,
           });
 

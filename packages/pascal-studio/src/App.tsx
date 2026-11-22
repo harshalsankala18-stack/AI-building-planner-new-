@@ -49,7 +49,18 @@ class StudioErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
 
 function sendToHost(message: StudioToHostMessage): void {
   if (typeof window !== 'undefined' && window.parent && window.parent !== window) {
-    window.parent.postMessage(message, '*');
+    let targetOrigin = window.location.origin;
+    if (document.referrer) {
+      try {
+        const refOrigin = new URL(document.referrer).origin;
+        if (isValidBridgeOrigin(refOrigin)) {
+          targetOrigin = refOrigin;
+        }
+      } catch {
+        // fall back to window.location.origin
+      }
+    }
+    window.parent.postMessage(message, targetOrigin);
   }
 }
 

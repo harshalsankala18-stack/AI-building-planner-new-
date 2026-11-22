@@ -191,26 +191,128 @@ export function createBackendServer(deps: ServerDeps): Server {
   return server;
 }
 
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.wasm': 'application/wasm',
+  '.ttf': 'font/ttf',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+};
+
+function resolveStaticDirectory(subPath: string): string | null {
+  const candidates = [
+    path.resolve(process.cwd(), subPath),
+    path.resolve(process.cwd(), '..', '..', subPath),
+    path.resolve(process.cwd(), '..', subPath),
+    path.resolve(__dirname, '../../..', subPath),
+    path.resolve(__dirname, '..', subPath),
+    path.resolve('/app', subPath),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      return c;
+    }
+  }
+  return null;
+}
+
+function serveStaticFile(
+  filePath: string,
+  response: ServerResponse,
+  corsHeaders: Record<string, string> = CORS_HEADERS
+): boolean {
+  if (!fs.existsSync(filePath)) return false;
+  try {
+    const stats = fs.statSync(filePath);
+    if (!stats.isFile()) return false;
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = MIME_TYPES[ext] ?? 'application/octet-stream';
+    response.writeHead(200, {
+      'Content-Type': contentType,
+      'Content-Length': stats.size,
+      ...corsHeaders,
+    });
+    fs.createReadStream(filePath).pipe(response);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+interface RateLimitBucket {
+  tokens: number;
+  lastRefill: number;
+}
+const aiEditRateBuckets = new Map<string, RateLimitBucket>();
+const AI_EDIT_LIMIT_PER_MIN = parseInt(
+  process.env.RATE_LIMIT_AI_EDIT_PER_MIN ?? (process.env.NODE_ENV === 'test' ? '10000' : '60'),
+  10
+);
+
+function checkAiEditRateLimit(clientIp: string): boolean {
+  if (process.env.NODE_ENV === 'test' || process.env.RATE_LIMIT_DISABLED === 'true') {
+    return true;
+  }
+  const now = Date.now();
+  let bucket = aiEditRateBuckets.get(clientIp);
+  if (!bucket) {
+    bucket = { tokens: AI_EDIT_LIMIT_PER_MIN, lastRefill: now };
+    aiEditRateBuckets.set(clientIp, bucket);
+  }
+  const elapsed = (now - bucket.lastRefill) / 1000;
+  bucket.tokens = Math.min(
+    AI_EDIT_LIMIT_PER_MIN,
+    bucket.tokens + elapsed * (AI_EDIT_LIMIT_PER_MIN / 60)
+  );
+  bucket.lastRefill = now;
+  if (bucket.tokens >= 1) {
+    bucket.tokens -= 1;
+    return true;
+  }
+  return false;
+}
+
 function sendJson(response: ServerResponse, status: number, json: unknown): void {
   response.writeHead(status, { 'Content-Type': 'application/json', ...CORS_HEADERS });
   response.end(JSON.stringify(json));
 }
 
-function readBody(request: IncomingMessage): Promise<string> {
+function readBody(request: IncomingMessage, maxBytes = 1 * 1024 * 1024): Promise<string> {
   return new Promise((resolve, reject) => {
+    const contentLength = parseInt(request.headers['content-length'] ?? '', 10);
+    if (!isNaN(contentLength) && contentLength > maxBytes) {
+      reject(new Error(`Payload Too Large: maximum allowed body size is ${maxBytes} bytes.`));
+      return;
+    }
+
     let size = 0;
+    let rejected = false;
     const chunks: Buffer[] = [];
     request.on('data', (chunk: Buffer) => {
+      if (rejected) return;
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
-        reject(new Error('Request body too large.'));
-        request.destroy();
+      if (size > maxBytes) {
+        rejected = true;
+        reject(new Error(`Payload Too Large: maximum allowed body size is ${maxBytes} bytes.`));
         return;
       }
       chunks.push(chunk);
     });
-    request.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    request.on('error', reject);
+    request.on('end', () => {
+      if (!rejected) resolve(Buffer.concat(chunks).toString('utf8'));
+    });
+    request.on('error', (err) => {
+      if (!rejected) reject(err);
+    });
   });
 }
 
@@ -227,6 +329,23 @@ async function route(request: IncomingMessage, response: ServerResponse, deps: S
   const storage = deps.storage ?? createObjectStorageFromEnv(process.env);
   const repository = deps.repository ?? createProjectRepositoryFromEnv(process.env);
   const jobQueue = deps.jobQueue ?? createJobQueueFromEnv(process.env, repository, storage);
+
+  // Rate limiting guard on AI edit routes
+  if (url.pathname.includes('/ai-edit/')) {
+    const clientIp =
+      (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      request.socket.remoteAddress ||
+      'local';
+    if (!checkAiEditRateLimit(clientIp)) {
+      sendJson(response, 429, {
+        error: {
+          code: 'RATE_LIMIT_EXCEEDED',
+          message: 'Rate limit exceeded for AI edit operations (maximum 60 requests/minute). Please slow down.',
+        },
+      });
+      return;
+    }
+  }
 
   try {
     if (method === 'GET' && url.pathname === '/api/storage/download') {
@@ -248,14 +367,14 @@ async function route(request: IncomingMessage, response: ServerResponse, deps: S
       response.end(buffer);
       return;
     }
-    if (method === 'GET' && url.pathname === '/api/v1/health') {
+    if (method === 'GET' && (url.pathname === '/api/health' || url.pathname === '/api/v1/health')) {
       const config = deps.config ?? resolveServiceConfig();
       sendJson(response, 200, await checkProviderHealth(config, deps));
       return;
     }
 
     if (method === 'POST' && (url.pathname === '/api/projects/generate' || url.pathname === '/api/v1/projects/generate')) {
-      const raw = await readBody(request);
+      const raw = await readBody(request, 10 * 1024 * 1024);
       let body: unknown = null;
       try {
         body = raw.length > 0 ? JSON.parse(raw) : null;
@@ -269,7 +388,7 @@ async function route(request: IncomingMessage, response: ServerResponse, deps: S
     }
 
     if (method === 'POST' && url.pathname === '/api/v1/architecture/evaluate') {
-      const raw = await readBody(request);
+      const raw = await readBody(request, 5 * 1024 * 1024);
       let body: unknown = null;
       try {
         body = raw.length > 0 ? JSON.parse(raw) : null;
@@ -282,25 +401,80 @@ async function route(request: IncomingMessage, response: ServerResponse, deps: S
       return;
     }
 
-    if (await handleExportRoute(request, response, url, readBody, sendJson, CORS_HEADERS)) return;
+    // Wrap readBody with 10MB limit for pascal scene routes
+    const readBodyForRoute = (req: IncomingMessage) =>
+      readBody(req, url.pathname.includes('/pascal-scene') ? 10 * 1024 * 1024 : 1 * 1024 * 1024);
 
-    if (await handlePascalSceneRoute(request, response, url, readBody, sendJson, CORS_HEADERS, { repository, storage })) return;
+    if (await handleExportRoute(request, response, url, readBodyForRoute, sendJson, CORS_HEADERS)) return;
 
-    if (await handleArchLangRoute(request, response, url, readBody, sendJson, CORS_HEADERS)) return;
+    if (await handlePascalSceneRoute(request, response, url, readBodyForRoute, sendJson, CORS_HEADERS, { repository, storage })) return;
 
-    if (await handleAiEditRoute(request, response, url, readBody, sendJson, CORS_HEADERS, { ...deps, repository, storage })) return;
+    if (await handleArchLangRoute(request, response, url, readBodyForRoute, sendJson, CORS_HEADERS)) return;
 
-    if (await handleJobRoutes(request, response, url, readBody, sendJson, CORS_HEADERS, {
+    if (await handleAiEditRoute(request, response, url, readBodyForRoute, sendJson, CORS_HEADERS, { ...deps, repository, storage })) return;
+
+    if (await handleJobRoutes(request, response, url, readBodyForRoute, sendJson, CORS_HEADERS, {
       jobQueue,
       repository,
       storage,
       workerRole: deps.config?.workerRole,
     })) return;
 
+    // ── Static Asset Serving ──────────────────────────────────────────────────
+    if (method === 'GET' && !url.pathname.startsWith('/api')) {
+      // 1. Pascal 3D Studio Sub-App
+      if (url.pathname === '/pascal-studio' || url.pathname.startsWith('/pascal-studio/')) {
+        const studioDist =
+          resolveStaticDirectory('packages/pascal-studio/dist') ??
+          resolveStaticDirectory('packages/frontend/dist/pascal-studio');
+
+        if (studioDist) {
+          let relPath = url.pathname.replace(/^\/pascal-studio\/?/, '');
+          if (!relPath || relPath === '/') {
+            relPath = 'index.html';
+          }
+          const candidateFile = path.resolve(studioDist, relPath);
+          if (serveStaticFile(candidateFile, response)) {
+            return;
+          }
+          // SPA fallback for /pascal-studio/*
+          if (!path.extname(relPath)) {
+            const indexHtml = path.resolve(studioDist, 'index.html');
+            if (serveStaticFile(indexHtml, response)) {
+              return;
+            }
+          }
+        }
+      }
+
+      // 2. Main Frontend SPA
+      const frontendDist = resolveStaticDirectory('packages/frontend/dist');
+      if (frontendDist) {
+        let relPath = url.pathname.replace(/^\//, '');
+        if (!relPath || relPath === '/') {
+          relPath = 'index.html';
+        }
+        const candidateFile = path.resolve(frontendDist, relPath);
+        if (serveStaticFile(candidateFile, response)) {
+          return;
+        }
+        // SPA history fallback for frontend
+        if (!path.extname(relPath)) {
+          const indexHtml = path.resolve(frontendDist, 'index.html');
+          if (serveStaticFile(indexHtml, response)) {
+            return;
+          }
+        }
+      }
+    }
+
     sendJson(response, 404, { error: { code: 'NOT_FOUND', message: 'Unknown endpoint.' } });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unexpected server error.';
-    sendJson(response, message.includes('too large') ? 413 : 500, { error: { code: 'SERVER_ERROR', message } });
+    const isPayloadTooLarge = message.toLowerCase().includes('payload too large') || message.toLowerCase().includes('too large');
+    sendJson(response, isPayloadTooLarge ? 413 : 500, {
+      error: { code: isPayloadTooLarge ? 'PAYLOAD_TOO_LARGE' : 'SERVER_ERROR', message },
+    });
   }
 }
 
@@ -320,6 +494,19 @@ export function startBackendServer(port?: number): { server: Server; config: Ser
     jobQueue,
   };
   const server = createBackendServer(deps);
+
+  const shutdown = () => {
+    console.log('Received termination signal. Shutting down gracefully...');
+    server.close(() => {
+      void jobQueue.close().then(() => {
+        process.exit(0);
+      });
+    });
+  };
+
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
+
   server.listen(port ?? config.port, () => {
     // Never log credential values — only their presence.
     console.log(`AI floor-planner backend listening on port ${port ?? config.port}`);

@@ -11,11 +11,13 @@
   },
   "scripts": {
     "build": "turbo run build",
+    "build:all": "node scripts/build-all.mjs",
     "dev": "turbo run dev",
     "preview:current": "pnpm --filter @ai-floor-planner/frontend run preview:current",
     "test": "turbo run test",
     "test:unit": "turbo run test:unit",
     "test:integration": "vitest run --project integration",
+    "test:e2e:prod": "node scripts/e2e-production-uat.mjs",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "verify:release": "pnpm test && pnpm typecheck && pnpm build && pnpm lint",

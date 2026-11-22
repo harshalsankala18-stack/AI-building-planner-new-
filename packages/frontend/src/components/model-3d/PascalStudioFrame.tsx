@@ -21,11 +21,13 @@ import {
 export interface PascalStudioFrameProps {
   readonly projectId: string;
   readonly onFallbackToStandard?: () => void;
+  readonly reloadKey?: number;
 }
 
 export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
   projectId,
   onFallbackToStandard,
+  reloadKey,
 }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -55,7 +57,15 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
 
   const postToStudio = useCallback((message: HostToStudioMessage) => {
     if (iframeRef.current?.contentWindow) {
-      iframeRef.current.contentWindow.postMessage(message, '*');
+      let targetOrigin = window.location.origin;
+      try {
+        if (iframeRef.current.src) {
+          targetOrigin = new URL(iframeRef.current.src, window.location.href).origin;
+        }
+      } catch {
+        // fallback
+      }
+      iframeRef.current.contentWindow.postMessage(message, targetOrigin);
     }
   }, []);
 
@@ -83,6 +93,12 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
       setStatusMessage(`Error loading scene: ${msg}`);
     }
   }, [projectId, postToStudio]);
+
+  useEffect(() => {
+    if (reloadKey && studioReady) {
+      void loadSceneFromBackend();
+    }
+  }, [reloadKey, studioReady, loadSceneFromBackend]);
 
   // Handle postMessage events from the embedded sub-app
   useEffect(() => {

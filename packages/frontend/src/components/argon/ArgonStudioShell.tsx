@@ -28,6 +28,8 @@ import { StructuralCADWorkspace } from './StructuralCADWorkspace';
 import { UdcprEtabsAnalysis } from './UdcprEtabsAnalysis';
 import { ExportCenterWorkspace } from './ExportCenterWorkspace';
 import { GenerationProgressModal } from './GenerationProgressModal';
+import { SystemStatusIndicator } from '../common/SystemStatusIndicator';
+import { JobTracker } from '../common/JobTracker';
 import { projectStorage } from '../../services/storage';
 import {
   type executeAuditedPlanningPipeline,
@@ -295,6 +297,7 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
 
         {/* Right: Tools & Profile */}
         <div className="flex items-center gap-3">
+          <SystemStatusIndicator />
           <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-argon-card border border-argon-border shadow-2xs">
             <button className="p-1.5 text-argon-muted hover:text-argon-text transition-colors" title="Command Palette (Ctrl+K)">
               <Command className="w-4 h-4" />
@@ -429,6 +432,7 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
           box-shadow: 0 0 10px rgba(245, 158, 11, 0.3);
         }
       ` }} />
+      <JobTracker />
     </div>
   );
 };
