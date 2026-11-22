@@ -11,6 +11,10 @@ export default defineConfig({
         target: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:4200',
         changeOrigin: true,
       },
+      '/pascal-studio': {
+        target: process.env.VITE_PASCAL_STUDIO_PROXY_TARGET || 'http://127.0.0.1:5174',
+        changeOrigin: true,
+      },
     },
   },
   test: {

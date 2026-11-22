@@ -34,13 +34,29 @@ await esbuild.build({
   format: 'cjs',
   target: 'node22',
   keepNames: true,
+  external: ['@resvg/resvg-js', '*.node'],
   outfile: path.join(backend, 'dist-server', 'server.cjs'),
   logLevel: 'warning',
 });
 
-console.log('Backend bundle written to packages/backend/dist-server/server.cjs');
+await esbuild.build({
+  entryPoints: [path.join(backend, 'src', 'jobs', 'windows-worker.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  target: 'node22',
+  keepNames: true,
+  external: ['@resvg/resvg-js', '*.node'],
+  outfile: path.join(backend, 'dist-server', 'windows-worker.cjs'),
+  logLevel: 'warning',
+});
+
+console.log('Backend bundle written to packages/backend/dist-server/server.cjs & windows-worker.cjs');
 
 if (process.argv.includes('--run')) {
   const { fork } = await import('node:child_process');
   fork(path.join(backend, 'dist-server', 'server.cjs'), { stdio: 'inherit' });
+} else if (process.argv.includes('--worker-windows')) {
+  const { fork } = await import('node:child_process');
+  fork(path.join(backend, 'dist-server', 'windows-worker.cjs'), { stdio: 'inherit' });
 }

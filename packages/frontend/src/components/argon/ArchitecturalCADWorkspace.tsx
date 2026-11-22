@@ -9,6 +9,7 @@ import { ArchitecturalCanvas } from '../canvas/ArchitecturalCanvas';
 import { PropertyInspector } from '../inspector/PropertyInspector';
 import { requestVerifiedExport, downloadVerifiedExport } from '../../services/export-client';
 import type { WorkspaceLayer } from '../workspace/BuildingNavigator';
+import { ArchLangPresentationSheet } from '../cad/ArchLangPresentationSheet';
 
 export interface ArchitecturalCADWorkspaceProps {
   editor: EditorContextValue;
@@ -30,6 +31,8 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
   const aiTelemetry = editor.building.metadata.generationBrief?.aiTelemetry;
   const activeArchetype = editor.building.metadata.generationBrief?.archetype;
   const activeMassingShape = editor.building.metadata.generationBrief?.buildingMassingShape;
+  const [workspaceMode, setWorkspaceMode] = useState<'engineering' | 'archlang'>('engineering');
+  const [lockedRoomIds, setLockedRoomIds] = useState<string[]>([]);
   const [entityLayers, setEntityLayers] = useState({ columns: false, beams: false, furniture: true });
   const [disciplines, setDisciplines] = useState<Record<EngineeringOverlay, boolean>>({
     ARCHITECTURAL: true,
@@ -95,6 +98,28 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
     >
       <div className="flex flex-wrap items-center gap-3 border-b border-slate-700 p-3">
         <strong>2D CAD Studio</strong>
+        <div className="flex items-center rounded-lg bg-slate-900 p-0.5 border border-slate-700" role="group" aria-label="CAD Studio mode switcher">
+          <button
+            type="button"
+            onClick={() => setWorkspaceMode('engineering')}
+            className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${workspaceMode === 'engineering'
+              ? 'bg-amber-500 text-slate-950 shadow'
+              : 'text-slate-300 hover:text-white'
+              }`}
+          >
+            Engineering CAD
+          </button>
+          <button
+            type="button"
+            onClick={() => setWorkspaceMode('archlang')}
+            className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${workspaceMode === 'archlang'
+              ? 'bg-emerald-500 text-slate-950 shadow'
+              : 'text-slate-300 hover:text-white'
+              }`}
+          >
+            Presentation Sheet (ArchLang)
+          </button>
+        </div>
         {onRegeneratePlan && (
           <button
             type="button"
@@ -115,11 +140,10 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
           </button>
         )}
         <span
-          className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
-            aiTelemetry?.geminiInvoked
-              ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
-              : 'border-slate-600 bg-slate-800 text-slate-300'
-          }`}
+          className={`rounded-full border px-2.5 py-1 text-xs font-medium ${aiTelemetry?.geminiInvoked
+            ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+            : 'border-slate-600 bg-slate-800 text-slate-300'
+            }`}
           title={
             aiTelemetry?.geminiInvoked
               ? `Gemini proposal active (${aiTelemetry.modelUsed ?? 'gemini'})${aiTelemetry.referenceImageUsedForGeometry ? ' + Vision Spatial Graph' : ''}${activeMassingShape ? ` · ${activeMassingShape}` : ''}${activeArchetype ? ` · ${activeArchetype}` : ''}`
@@ -132,16 +156,15 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
           {activeMassingShape ? ` · ${activeMassingShape.replace(/_/g, ' ')}` : ''}
         </span>
         <span
-          className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
-            complianceReport.score >= 85 && complianceReport.redConflictCount === 0
-              ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
-              : 'border-amber-500/40 bg-amber-500/15 text-amber-300'
-          }`}
+          className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${complianceReport.score >= 85 && complianceReport.redConflictCount === 0
+            ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+            : 'border-amber-500/40 bg-amber-500/15 text-amber-300'
+            }`}
           title={
             (complianceReport?.violations?.length ?? 0) > 0
               ? complianceReport.violations
-                  .map((v) => (typeof v === 'string' ? v : v.message))
-                  .join(' | ')
+                .map((v) => (typeof v === 'string' ? v : v.message))
+                .join(' | ')
               : 'All 6 architectural & code compliance checks passed (>= 85 / 100).'
           }
         >
@@ -175,127 +198,139 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
             </button>
           ))}
         </div>
-        <div
-          className="argon-tool-strip argon-discipline-toolbar flex flex-wrap items-center gap-1.5"
-          role="toolbar"
-          aria-label="Engineering discipline overlay switcher"
-        >
-          <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-            Discipline Plans:
-          </span>
-          {(
-            [
-              ['ARCHITECTURAL', 'Architectural Plan'],
-              ['STRUCTURAL', 'Structural + Chajja Plan'],
-              ['ELECTRICAL', 'Electrical Plan (M-ELEC)'],
-              ['PLUMBING', 'Plumbing & OTS Duct Plan (M-PLUMB)'],
-              ['FIRE_SAFETY', 'Fire Safety Plan (F-FIRE)'],
-              ['FALSE_CEILING', 'False Ceiling Plan (A-CEIL)'],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              aria-pressed={disciplines[key]}
-              onClick={() => {
-                const nextVal = !disciplines[key];
-                setDisciplines((p) => ({ ...p, [key]: nextVal }));
-                if (key === 'STRUCTURAL') {
-                  setEntityLayers((p) => ({ ...p, columns: nextVal, beams: nextVal }));
-                }
-              }}
-              className={`shrink-0 rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                disciplines[key]
+        {workspaceMode === 'engineering' && (
+          <div
+            className="argon-tool-strip argon-discipline-toolbar flex flex-wrap items-center gap-1.5"
+            role="toolbar"
+            aria-label="Engineering discipline overlay switcher"
+          >
+            <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Discipline Plans:
+            </span>
+            {(
+              [
+                ['ARCHITECTURAL', 'Architectural Plan'],
+                ['STRUCTURAL', 'Structural + Chajja Plan'],
+                ['ELECTRICAL', 'Electrical Plan (M-ELEC)'],
+                ['PLUMBING', 'Plumbing & OTS Duct Plan (M-PLUMB)'],
+                ['FIRE_SAFETY', 'Fire Safety Plan (F-FIRE)'],
+                ['FALSE_CEILING', 'False Ceiling Plan (A-CEIL)'],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={disciplines[key]}
+                onClick={() => {
+                  const nextVal = !disciplines[key];
+                  setDisciplines((p) => ({ ...p, [key]: nextVal }));
+                  if (key === 'STRUCTURAL') {
+                    setEntityLayers((p) => ({ ...p, columns: nextVal, beams: nextVal }));
+                  }
+                }}
+                className={`shrink-0 rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${disciplines[key]
                   ? 'bg-cyan-500 text-slate-950 font-semibold'
                   : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="relative min-h-[320px] min-w-0 flex-1">
-          <ArchitecturalCanvas
-            modelOnly
-            entityLayers={entityLayers}
-            disciplines={disciplines}
-            editor={editor}
-            snapEnabled
-            layers={layers}
-            fitRequest={0}
-          />
-        </div>
-        <aside className="w-full overflow-auto border-t border-slate-700 bg-slate-900 p-5 lg:w-80 lg:border-l lg:border-t-0">
-          <PropertyInspector editor={editor} embedded />
-          <h2 className="font-bold">Geometry audit · revision {editor.building.version}</h2>
-          <p className={`my-3 text-sm ${report.isValid ? 'text-emerald-300' : 'text-amber-300'}`}>
-            {report.isValid ? 'INTERNAL GEOMETRY CHECK PASSED' : 'CORRECTION REQUIRED'}
-          </p>
-          <p className="text-xs text-slate-300">Measured area delta: {report.planarDeltaMm2} mm²</p>
-          <p className="my-3 text-xs text-slate-400">
-            This software check does not certify structural safety or regulatory compliance.
-            Professional review required.
-          </p>
-          <div className="my-4 flex flex-wrap gap-2">
-            {(
-              ['rooms', 'walls', 'openings', 'stairs', 'dimensions', 'grid'] as WorkspaceLayer[]
-            ).map((layer) => (
-              <button
-                key={layer}
-                aria-pressed={layers[layer]}
-                onClick={() =>
-                  setLayers((previous) => ({ ...previous, [layer]: !previous[layer] }))
-                }
-                className={`rounded px-2 py-1 text-xs ${layers[layer] ? 'bg-amber-500/20 text-amber-200' : 'bg-slate-800 text-slate-400'}`}
+                  }`}
               >
-                {layer}
+                {label}
               </button>
             ))}
           </div>
-          <ul className="space-y-3 text-xs">
-            {report.errors
-              .filter((error) => !error.autoCorrected)
-              .map((error, index) => (
-                <li key={`${error.code}-${index}`} className="rounded border border-slate-700 p-2">
-                  <strong>{error.code}</strong>
-                  <p className="mt-1 text-slate-300">{error.description}</p>
-                </li>
-              ))}
-          </ul>
-        </aside>
+        )}
       </div>
-      <div
-        aria-label="CAD layers"
-        className="flex shrink-0 flex-wrap gap-2 border-t border-slate-700 bg-slate-900 p-3"
-      >
-        {(['walls', 'openings', 'stairs', 'dimensions'] as const).map((layer) => (
-          <button
-            key={layer}
-            aria-pressed={layers[layer]}
-            onClick={() => setLayers((p) => ({ ...p, [layer]: !p[layer] }))}
+      {workspaceMode === 'archlang' ? (
+        <ArchLangPresentationSheet
+          building={editor.building}
+          floorId={editor.activeFloor.id}
+          lockedRoomIds={lockedRoomIds}
+          onLockedRoomsChange={setLockedRoomIds}
+        />
+      ) : (
+        <>
+          <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+            <div className="relative min-h-[320px] min-w-0 flex-1">
+              <ArchitecturalCanvas
+                modelOnly
+                entityLayers={entityLayers}
+                disciplines={disciplines}
+                editor={editor}
+                snapEnabled
+                layers={layers}
+                fitRequest={0}
+              />
+            </div>
+            <aside className="w-full overflow-auto border-t border-slate-700 bg-slate-900 p-5 lg:w-80 lg:border-l lg:border-t-0">
+              <PropertyInspector editor={editor} embedded />
+              <h2 className="font-bold">Geometry audit · revision {editor.building.version}</h2>
+              <p className={`my-3 text-sm ${report.isValid ? 'text-emerald-300' : 'text-amber-300'}`}>
+                {report.isValid ? 'INTERNAL GEOMETRY CHECK PASSED' : 'CORRECTION REQUIRED'}
+              </p>
+              <p className="text-xs text-slate-300">Measured area delta: {report.planarDeltaMm2} mm²</p>
+              <p className="my-3 text-xs text-slate-400">
+                This software check does not certify structural safety or regulatory compliance.
+                Professional review required.
+              </p>
+              <div className="my-4 flex flex-wrap gap-2">
+                {(
+                  ['rooms', 'walls', 'openings', 'stairs', 'dimensions', 'grid'] as WorkspaceLayer[]
+                ).map((layer) => (
+                  <button
+                    key={layer}
+                    aria-pressed={layers[layer]}
+                    onClick={() =>
+                      setLayers((previous) => ({ ...previous, [layer]: !previous[layer] }))
+                    }
+                    className={`rounded px-2 py-1 text-xs ${layers[layer] ? 'bg-amber-500/20 text-amber-200' : 'bg-slate-800 text-slate-400'}`}
+                  >
+                    {layer}
+                  </button>
+                ))}
+              </div>
+              <ul className="space-y-3 text-xs">
+                {report.errors
+                  .filter((error) => !error.autoCorrected)
+                  .map((error, index) => (
+                    <li key={`${error.code}-${index}`} className="rounded border border-slate-700 p-2">
+                      <strong>{error.code}</strong>
+                      <p className="mt-1 text-slate-300">{error.description}</p>
+                    </li>
+                  ))}
+              </ul>
+            </aside>
+          </div>
+          <div
+            aria-label="CAD layers"
+            className="flex shrink-0 flex-wrap gap-2 border-t border-slate-700 bg-slate-900 p-3"
           >
-            {
-              {
-                walls: 'Walls',
-                openings: 'Doors/Windows',
-                stairs: 'Staircases',
-                dimensions: 'Dimensions',
-              }[layer]
-            }
-          </button>
-        ))}
-        {(['columns', 'beams', 'furniture'] as const).map((layer) => (
-          <button
-            key={layer}
-            aria-pressed={entityLayers[layer]}
-            onClick={() => setEntityLayers((p) => ({ ...p, [layer]: !p[layer] }))}
-          >
-            {layer[0]!.toUpperCase() + layer.slice(1)}
-          </button>
-        ))}
-      </div>
+            {(['walls', 'openings', 'stairs', 'dimensions'] as const).map((layer) => (
+              <button
+                key={layer}
+                aria-pressed={layers[layer]}
+                onClick={() => setLayers((p) => ({ ...p, [layer]: !p[layer] }))}
+              >
+                {
+                  {
+                    walls: 'Walls',
+                    openings: 'Doors/Windows',
+                    stairs: 'Staircases',
+                    dimensions: 'Dimensions',
+                  }[layer]
+                }
+              </button>
+            ))}
+            {(['columns', 'beams', 'furniture'] as const).map((layer) => (
+              <button
+                key={layer}
+                aria-pressed={entityLayers[layer]}
+                onClick={() => setEntityLayers((p) => ({ ...p, [layer]: !p[layer] }))}
+              >
+                {layer[0]!.toUpperCase() + layer.slice(1)}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </section>
   );
 };

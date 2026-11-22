@@ -16,6 +16,13 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import fs from 'node:fs';
 import path from 'node:path';
 import { handleExportRoute } from './api/export-routes.js';
+import { handlePascalSceneRoute } from './api/pascal-scene-routes.js';
+import { handleArchLangRoute } from './api/archlang-routes.js';
+import { handleAiEditRoute } from './api/ai-edit-routes.js';
+import { handleJobRoutes } from './api/job-routes.js';
+import { createObjectStorageFromEnv, type ObjectStorageAdapter } from './storage/object-storage.js';
+import { createProjectRepositoryFromEnv, type ProjectRepository } from './persistence/project-repository.js';
+import { createJobQueueFromEnv, type JobQueueAdapter } from './jobs/job-queue.js';
 import { GeminiProvider, type BaseAIProvider } from '@ai-floor-planner/ai-orchestration';
 import { resolveServiceConfig, type ServiceConfig } from './env.js';
 import { handleArchitecturalEvaluation } from './api/evaluation-routes.js';
@@ -43,7 +50,7 @@ const MAX_BODY_BYTES = 25 * 1024 * 1024;
 
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+  'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Expose-Headers': 'Content-Disposition, Content-Length, X-CAD-Format, X-CAD-Magic, X-CAD-Entities, X-CAD-Layers, X-CAD-Validation, X-CAD-Disk-Path, X-CAD-Download-URL, X-Artifact-Descriptor',
 };
@@ -168,6 +175,9 @@ export interface ServerDeps {
   readonly gemini: BaseAIProvider | null;
   readonly briefInterpreterKind: 'gemini' | 'local-stub';
   readonly config?: ServiceConfig;
+  readonly storage?: ObjectStorageAdapter;
+  readonly repository?: ProjectRepository;
+  readonly jobQueue?: JobQueueAdapter;
 }
 
 /** Export and structural-report generation can exceed Node's default timeout. */
@@ -214,7 +224,30 @@ async function route(request: IncomingMessage, response: ServerResponse, deps: S
     return;
   }
 
+  const storage = deps.storage ?? createObjectStorageFromEnv(process.env);
+  const repository = deps.repository ?? createProjectRepositoryFromEnv(process.env);
+  const jobQueue = deps.jobQueue ?? createJobQueueFromEnv(process.env, repository, storage);
+
   try {
+    if (method === 'GET' && url.pathname === '/api/storage/download') {
+      const key = url.searchParams.get('key');
+      if (!key) {
+        sendJson(response, 400, { error: { code: 'MISSING_KEY', message: 'key query parameter required.' } });
+        return;
+      }
+      const buffer = await storage.getObject(key);
+      if (!buffer) {
+        sendJson(response, 404, { error: { code: 'FILE_NOT_FOUND', message: 'Storage object not found.' } });
+        return;
+      }
+      response.writeHead(200, {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': buffer.length,
+        ...CORS_HEADERS,
+      });
+      response.end(buffer);
+      return;
+    }
     if (method === 'GET' && url.pathname === '/api/v1/health') {
       const config = deps.config ?? resolveServiceConfig();
       sendJson(response, 200, await checkProviderHealth(config, deps));
@@ -251,6 +284,19 @@ async function route(request: IncomingMessage, response: ServerResponse, deps: S
 
     if (await handleExportRoute(request, response, url, readBody, sendJson, CORS_HEADERS)) return;
 
+    if (await handlePascalSceneRoute(request, response, url, readBody, sendJson, CORS_HEADERS, { repository, storage })) return;
+
+    if (await handleArchLangRoute(request, response, url, readBody, sendJson, CORS_HEADERS)) return;
+
+    if (await handleAiEditRoute(request, response, url, readBody, sendJson, CORS_HEADERS, { ...deps, repository, storage })) return;
+
+    if (await handleJobRoutes(request, response, url, readBody, sendJson, CORS_HEADERS, {
+      jobQueue,
+      repository,
+      storage,
+      workerRole: deps.config?.workerRole,
+    })) return;
+
     sendJson(response, 404, { error: { code: 'NOT_FOUND', message: 'Unknown endpoint.' } });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unexpected server error.';
@@ -261,15 +307,23 @@ async function route(request: IncomingMessage, response: ServerResponse, deps: S
 export function startBackendServer(port?: number): { server: Server; config: ServiceConfig } {
   const config = resolveServiceConfig();
   const gemini = createGeminiProvider(config);
+  const storage = createObjectStorageFromEnv(process.env);
+  const repository = createProjectRepositoryFromEnv(process.env);
+  const jobQueue = createJobQueueFromEnv(process.env, repository, storage);
+
   const deps: ServerDeps = {
     gemini,
     briefInterpreterKind: config.briefInterpreterKind,
     config,
+    storage,
+    repository,
+    jobQueue,
   };
   const server = createBackendServer(deps);
   server.listen(port ?? config.port, () => {
     // Never log credential values — only their presence.
     console.log(`AI floor-planner backend listening on port ${port ?? config.port}`);
+    console.log(`Storage: ${storage.providerName} | Database: ${repository.providerName} | Queue: ${jobQueue.mode}`);
     console.log('Plan generation: deterministic (planning-engine); no image provider involved');
     console.log(
       `Brief interpreter: ${deps.briefInterpreterKind === 'gemini'

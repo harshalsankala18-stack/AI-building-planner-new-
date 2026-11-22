@@ -19,6 +19,21 @@ export interface ServiceConfig {
   readonly geminiFallbackModel: string;
   readonly providerTimeoutMs: number;
   readonly port: number;
+
+  /** Phase 5 Production Cloud Split Configuration */
+  readonly databaseProvider: 'local' | 'supabase';
+  readonly supabaseUrl?: string;
+  readonly supabaseServiceRoleKey?: string;
+
+  readonly storageProvider: 'local' | 'r2';
+  readonly r2Endpoint?: string;
+  readonly r2AccessKeyId?: string;
+  readonly r2SecretAccessKey?: string;
+  readonly r2Bucket?: string;
+  readonly r2PublicBaseUrl?: string;
+
+  readonly redisUrl?: string;
+  readonly workerRole: 'api' | 'linux-worker' | 'windows-worker' | 'all';
 }
 
 function positiveInt(value: string | undefined, fallback: number): number {
@@ -36,6 +51,12 @@ export function resolveServiceConfig(env: NodeJS.ProcessEnv = process.env): Serv
   const defaultFallback = primaryModel === 'gemini-3.1-flash-lite' ? 'gemini-3.6-flash' : 'gemini-3.1-flash-lite';
   const fallbackModel = (env.GEMINI_FALLBACK_MODEL ?? '').trim() || defaultFallback;
 
+  const dbProvider = (env.DATABASE_PROVIDER ?? 'local').trim().toLowerCase() === 'supabase' ? 'supabase' : 'local';
+  const storeProvider = (env.STORAGE_PROVIDER ?? 'local').trim().toLowerCase() === 'r2' ? 'r2' : 'local';
+  const validRoles: ServiceConfig['workerRole'][] = ['api', 'linux-worker', 'windows-worker', 'all'];
+  const rawRole = (env.WORKER_ROLE ?? 'all').trim().toLowerCase() as ServiceConfig['workerRole'];
+  const workerRole = validRoles.includes(rawRole) ? rawRole : 'all';
+
   return {
     briefInterpreterKind: interpreterKind === 'local-stub' ? 'local-stub' : 'gemini',
     geminiApiKey: (env.GEMINI_API_KEY ?? '').trim(),
@@ -43,5 +64,19 @@ export function resolveServiceConfig(env: NodeJS.ProcessEnv = process.env): Serv
     geminiFallbackModel: fallbackModel,
     providerTimeoutMs: positiveInt(env.PROVIDER_TIMEOUT_MS, 60_000),
     port: positiveInt(env.PORT, 4200),
+
+    databaseProvider: dbProvider,
+    supabaseUrl: env.SUPABASE_URL?.trim(),
+    supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY?.trim(),
+
+    storageProvider: storeProvider,
+    r2Endpoint: env.R2_ENDPOINT?.trim(),
+    r2AccessKeyId: env.R2_ACCESS_KEY_ID?.trim(),
+    r2SecretAccessKey: env.R2_SECRET_ACCESS_KEY?.trim(),
+    r2Bucket: env.R2_BUCKET?.trim(),
+    r2PublicBaseUrl: env.R2_PUBLIC_BASE_URL?.trim(),
+
+    redisUrl: env.REDIS_URL?.trim(),
+    workerRole,
   };
 }

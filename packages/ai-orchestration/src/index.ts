@@ -48,6 +48,20 @@ export type {
   AIEditRoomSummary,
 } from './editing/types';
 export {
+  ArchLangAIEditor,
+  deterministicArchLangEdit,
+  type ArchLangAIEditRequest,
+  type ArchLangAIEditResult,
+  type ArchLangAIEditorOptions,
+} from './editing/archlang-ai-editor';
+export {
+  PascalAIEditor,
+  deterministicPascalOperations,
+  type PascalAIEditRequest,
+  type PascalAIEditResult,
+  type PascalAIEditorOptions,
+} from './editing/pascal-ai-editor';
+export {
   ArchitecturalResearchAgent,
   type ArchitecturalResearchInput,
   type ArchitecturalResearchReport,
@@ -242,3 +256,16 @@ export {
   compileApartmentFloorPlanImagePrompt,
   compileDynamicApartmentFloorPlanImagePrompt,
 } from './orchestration/image-prompt-compiler';
+export {
+  APARTMENT_IMAGE_INTERPRETATION_SCHEMA,
+  interpretPlanImageWithGemini,
+} from './orchestration/vision-interpretation';
+export { runGeminiApartmentPreflight } from './orchestration/apartment-preflight';
+export { computeAspectAdaptedDimensions } from './orchestration/aspect-ratio';
+export {
+  resolveApartmentReferenceBucket,
+  selectReferenceCandidates,
+  finalizeReferenceSelection,
+  type AvailableReferenceFile,
+  type ReferenceDropRecord,
+} from './apartment/reference-library';

@@ -1,0 +1,63 @@
+# syntax=docker/dockerfile:1.4
+# Multi-stage Dockerfile for AI Floor Planner API & Linux Worker
+# Node.js 20-slim base image
+
+# ------------------------------------------------------------------------------
+# Stage 1: Build & Bundle
+# ------------------------------------------------------------------------------
+FROM node:20-slim AS builder
+
+WORKDIR /app
+
+# Install pnpm and necessary build tooling
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+# Copy root workspace manifests
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY packages/core/package.json ./packages/core/
+COPY packages/geometry-engine/package.json ./packages/geometry-engine/
+COPY packages/planning-engine/package.json ./packages/planning-engine/
+COPY packages/constraint-engine/package.json ./packages/constraint-engine/
+COPY packages/interop/package.json ./packages/interop/
+COPY packages/ai-orchestration/package.json ./packages/ai-orchestration/
+COPY packages/backend/package.json ./packages/backend/
+COPY packages/frontend/package.json ./packages/frontend/
+COPY packages/pascal-studio/package.json ./packages/pascal-studio/
+
+# Install workspace dependencies
+RUN pnpm install --frozen-lockfile || pnpm install
+
+# Copy source tree
+COPY . .
+
+# Build packages and bundle production server
+RUN pnpm --filter @ai-floor-planner/interop build || true
+RUN node scripts/bundle-backend.mjs
+RUN pnpm --filter @ai-floor-planner/pascal-studio build
+RUN pnpm --filter @ai-floor-planner/frontend build
+
+# ------------------------------------------------------------------------------
+# Stage 2: Production Runtime
+# ------------------------------------------------------------------------------
+FROM node:20-slim AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=4200
+ENV HOST=0.0.0.0
+
+# Copy bundled cjs server and assets
+COPY --from=builder /app/packages/backend/dist-server /app/packages/backend/dist-server
+COPY --from=builder /app/packages/frontend/dist /app/packages/frontend/dist
+COPY --from=builder /app/packages/pascal-studio/dist /app/packages/pascal-studio/dist
+
+# Expose default HTTP API port
+EXPOSE 4200
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:4200/api/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1))"
+
+# Start the bundled API & light worker server
+CMD ["node", "packages/backend/dist-server/server.cjs"]

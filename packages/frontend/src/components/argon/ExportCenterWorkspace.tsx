@@ -9,6 +9,7 @@ import {
   type VerifiedExportFormat,
   type VerifiedExportOptions,
 } from '../../services/export-client';
+import { requestArchLangExport, fetchArchLangPreview } from '../../services/archlang-client';
 
 export const ExportCenterWorkspace: React.FC<{ editor: EditorContextValue }> = ({ editor }) => {
   const { building } = editor;
@@ -26,6 +27,12 @@ export const ExportCenterWorkspace: React.FC<{ editor: EditorContextValue }> = (
   const [blenderStatus, setBlenderStatus] = useState<'IDLE' | 'GENERATING' | 'VERIFIED' | 'FAILED'>('IDLE');
   const [blenderManifest, setBlenderManifest] = useState<{ jobId: string; files: any[] } | null>(null);
   const [blenderError, setBlenderError] = useState<string>('');
+  const [archlangFloorId, setArchlangFloorId] = useState<string>(building.floors[0]?.id ?? '');
+  const [archlangAutoFurnish, setArchlangAutoFurnish] = useState(true);
+  const [archlangCirculation, setArchlangCirculation] = useState(false);
+  const [archlangDimensions, setArchlangDimensions] = useState(true);
+  const [archlangBusy, setArchlangBusy] = useState<string | null>(null);
+  const [archlangStatus, setArchlangStatus] = useState<string>('');
   const controller = useRef(new AbortController());
   const current = useRef(building);
   current.current = building;
@@ -175,6 +182,57 @@ export const ExportCenterWorkspace: React.FC<{ editor: EditorContextValue }> = (
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+  };
+
+  const exportArchlang = async (format: 'svg' | 'arch' | 'pdf' | 'dxf', action: 'download' | 'preview') => {
+    const key = `archlang-${format}`;
+    setArchlangBusy(key);
+    setArchlangStatus('Generating / compiling ArchLang artifact...');
+    try {
+      const activeFloor = archlangFloorId || building.floors[0]?.id;
+      if (action === 'preview') {
+        const previewResult = await fetchArchLangPreview(
+          building,
+          {
+            floorId: activeFloor,
+            autoFurnish: archlangAutoFurnish,
+            circulationOverlay: archlangCirculation,
+            showDimensions: archlangDimensions,
+          },
+          controller.current.signal
+        );
+        const blob = new Blob([previewResult.svg], { type: 'image/svg+xml' });
+        setPreview({
+          url: URL.createObjectURL(blob),
+          type: 'image/svg+xml',
+          title: `ArchLang Presentation Sheet (${previewResult.floorName})`,
+        });
+        setArchlangStatus(`PREVIEW_READY (${previewResult.stats.roomCount} rooms)`);
+      } else {
+        const result = await requestArchLangExport(
+          building,
+          {
+            floorId: activeFloor,
+            format,
+            autoFurnish: archlangAutoFurnish,
+            circulationOverlay: archlangCirculation,
+            showDimensions: archlangDimensions,
+          },
+          controller.current.signal
+        );
+        const a = document.createElement('a');
+        a.href = result.downloadUrl;
+        a.download = result.artifact.fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setArchlangStatus(`VERIFIED ${result.artifact.sizeBytes} bytes · ${result.artifact.sha256?.slice(0, 12)}`);
+      }
+    } catch (e: any) {
+      setArchlangStatus(`Failed: ${e.message}`);
+    } finally {
+      setArchlangBusy(null);
+    }
   };
   return (
     <section
@@ -348,6 +406,110 @@ export const ExportCenterWorkspace: React.FC<{ editor: EditorContextValue }> = (
               className="rounded bg-indigo-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-600 disabled:opacity-50"
             >
               Drawings (A3 PDF)
+            </button>
+          </div>
+        </article>
+
+        <article className="rounded border border-slate-700 bg-slate-900/60 p-4 md:col-span-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
+              <h3 className="font-semibold text-slate-100">Architectural Presentation Sheet (ArchLang)</h3>
+              <span className="rounded bg-emerald-950/80 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 border border-emerald-500/30">
+                In-Process 2D DSL
+              </span>
+            </div>
+            {archlangStatus && (
+              <span className="text-xs text-amber-200">{archlangStatus}</span>
+            )}
+          </div>
+          <p className="my-2 text-xs text-slate-400">
+            Publish publication-grade architectural presentation sheets with deterministic auto-furnishing, optional circulation routing overlays, and dimension chains compiled in-process.
+          </p>
+
+          <div className="my-3 flex flex-wrap items-center gap-4 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs">
+            <label className="flex items-center gap-2">
+              <span className="text-slate-400">Target Floor:</span>
+              <select
+                aria-label="ArchLang Target Floor"
+                value={archlangFloorId}
+                onChange={(e) => setArchlangFloorId(e.target.value)}
+                className="rounded bg-slate-800 p-1.5 text-slate-200 border border-slate-700"
+              >
+                {building.floors.map((floor) => (
+                  <option key={floor.id} value={floor.id}>
+                    {floor.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={archlangAutoFurnish}
+                onChange={(e) => setArchlangAutoFurnish(e.target.checked)}
+                className="rounded border-slate-700 bg-slate-800 text-amber-500"
+              />
+              <span>Auto-Furnish</span>
+            </label>
+
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={archlangCirculation}
+                onChange={(e) => setArchlangCirculation(e.target.checked)}
+                className="rounded border-slate-700 bg-slate-800 text-cyan-500"
+              />
+              <span>Circulation Overlay</span>
+            </label>
+
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={archlangDimensions}
+                onChange={(e) => setArchlangDimensions(e.target.checked)}
+                className="rounded border-slate-700 bg-slate-800 text-indigo-500"
+              />
+              <span>Dimensions</span>
+            </label>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => void exportArchlang('svg', 'preview')}
+              disabled={archlangBusy !== null}
+              className="rounded bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+            >
+              Preview Sheet
+            </button>
+            <button
+              onClick={() => void exportArchlang('svg', 'download')}
+              disabled={archlangBusy !== null}
+              className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+            >
+              Furnished SVG
+            </button>
+            <button
+              onClick={() => void exportArchlang('pdf', 'download')}
+              disabled={archlangBusy !== null}
+              className="rounded bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-500 disabled:opacity-50"
+            >
+              Presentation PDF
+            </button>
+            <button
+              onClick={() => void exportArchlang('dxf', 'download')}
+              disabled={archlangBusy !== null}
+              className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+            >
+              Presentation DXF
+            </button>
+            <button
+              onClick={() => void exportArchlang('arch', 'download')}
+              disabled={archlangBusy !== null}
+              className="rounded bg-slate-700 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-slate-600 disabled:opacity-50"
+            >
+              Raw .arch DSL
             </button>
           </div>
         </article>

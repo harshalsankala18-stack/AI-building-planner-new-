@@ -1,0 +1,56 @@
+{
+  "name": "@ai-floor-planner/interop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Interop bridge between Canonical Building Model, Pascal Editor Core, and ArchLang",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./bridge": {
+      "types": "./dist/pascal/bridge-protocol.d.ts",
+      "import": "./dist/pascal/bridge-protocol.js"
+    },
+    "./pascal": {
+      "types": "./dist/pascal/canonical-to-pascal.d.ts",
+      "import": "./dist/pascal/canonical-to-pascal.js"
+    },
+    "./scene-mutator": {
+      "types": "./dist/pascal/scene-mutator.d.ts",
+      "import": "./dist/pascal/scene-mutator.js"
+    },
+    "./archlang": {
+      "types": "./dist/archlang/canonical-to-archlang.d.ts",
+      "import": "./dist/archlang/canonical-to-archlang.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsc --watch",
+    "test": "node ./test.mjs",
+    "test:unit": "node ./test.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/ --no-error-on-unmatched-pattern",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@ai-floor-planner/core": "workspace:*",
+    "@chanmeng666/archlang": "1.67.0",
+    "@pascal-app/core": "1.1.6",
+    "@pascal-app/nodes": "1.1.6"
+  },
+  "devDependencies": {
+    "@pascal-app/editor": "1.1.6",
+    "@types/node": "^20.14.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "typescript": "5.5.4",
+    "vitest": "2.0.5"
+  }
+}
