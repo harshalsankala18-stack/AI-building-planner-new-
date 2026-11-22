@@ -100,6 +100,25 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
     }
   }, [reloadKey, studioReady, loadSceneFromBackend]);
 
+  // Ping polling interval to ensure handshake completes quickly
+  useEffect(() => {
+    if (studioReady) return;
+
+    let pingAttempts = 0;
+    const interval = setInterval(() => {
+      pingAttempts++;
+      postToStudio({ type: 'PING' });
+      // If no response after 8 attempts (3.2 seconds), assume ready as fallback so buttons are never permanently disabled
+      if (pingAttempts >= 8) {
+        clearInterval(interval);
+        setStudioReady(true);
+        void loadSceneFromBackend();
+      }
+    }, 400);
+
+    return () => clearInterval(interval);
+  }, [studioReady, postToStudio, loadSceneFromBackend]);
+
   // Handle postMessage events from the embedded sub-app
   useEffect(() => {
     const handleMessage = async (event: MessageEvent<unknown>) => {
@@ -409,6 +428,9 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
           className="w-full h-full border-0"
           style={{ width: '100%', height: '100%', minHeight: '600px', border: 0 }}
           allow="accelerometer; camera; encrypted-media; gyroscope; microphone"
+          onLoad={() => {
+            postToStudio({ type: 'PING' });
+          }}
         />
 
         {/* Phase 4: Bottom AI 3D Edit Bar */}

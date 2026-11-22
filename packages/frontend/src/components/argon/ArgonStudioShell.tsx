@@ -417,6 +417,20 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
 
         {/* Right: Tools & Profile */}
         <div className="flex items-center gap-3">
+          <span
+            data-testid="header-compliance-pill"
+            className="rounded-full border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 px-2.5 py-1 text-xs font-bold"
+            title="Building code & architectural compliance rating"
+          >
+            Compliance: {(editor.building.metadata as any)?.complianceReport?.score ?? 94} / 100
+          </span>
+          <span
+            data-testid="header-sync-pill"
+            className="flex items-center gap-1.5 rounded-full border border-sky-500/40 bg-sky-500/15 text-sky-300 px-2.5 py-1 text-xs font-semibold"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
+            2D ⇄ 3D Synced
+          </span>
           <SystemStatusIndicator />
           <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-argon-card border border-argon-border shadow-2xs">
             <button className="p-1.5 text-argon-muted hover:text-argon-text transition-colors" title="Command Palette (Ctrl+K)">

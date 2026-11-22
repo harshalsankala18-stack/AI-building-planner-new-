@@ -34,6 +34,11 @@ export function toPascalId(prefix: 'site' | 'building' | 'level' | 'slab' | 'wal
   return `${prefix}_${sanitized}`;
 }
 
+function safeNum(val: unknown, fallback = 0): number {
+  const n = typeof val === 'number' ? val : Number(val);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 /**
  * Converts a Canonical Building Model (coordinates in mm) into a valid Pascal flat scene graph (units in meters).
  *
@@ -168,21 +173,29 @@ export function canonicalToPascal(building: Building): CanonicalToPascalResult {
 
       if (pascalWallId && hostWall) {
         const doorId = toPascalId('door', door.id);
-        const dx = (hostWall.endPoint.x - hostWall.startPoint.x) / 1000;
-        const dy = (hostWall.endPoint.y - hostWall.startPoint.y) / 1000;
-        const vx = (door.position.x - hostWall.startPoint.x) / 1000;
-        const vy = (door.position.y - hostWall.startPoint.y) / 1000;
+        const hx1 = safeNum(hostWall.startPoint?.x, 0);
+        const hy1 = safeNum(hostWall.startPoint?.y, 0);
+        const hx2 = safeNum(hostWall.endPoint?.x, 0);
+        const hy2 = safeNum(hostWall.endPoint?.y, 0);
+        const dx = (hx2 - hx1) / 1000;
+        const dy = (hy2 - hy1) / 1000;
+        const dpx = safeNum(door.position?.x, hx1);
+        const dpy = safeNum(door.position?.y, hy1);
+        const vx = (dpx - hx1) / 1000;
+        const vy = (dpy - hy1) / 1000;
         const wallLen = Math.hypot(dx, dy);
-        const s = wallLen > 0 ? Math.max(0, Math.min(wallLen, (vx * dx + vy * dy) / wallLen)) : 0;
+        const rawS = wallLen > 0 ? (vx * dx + vy * dy) / wallLen : 0;
+        const s = safeNum(rawS, 0);
+        const clampedS = wallLen > 0 ? Math.max(0, Math.min(wallLen, s)) : 0;
 
         const doorNode = DoorNode.parse({
           id: doorId,
           name: `Door ${door.id}`,
           parentId: pascalWallId,
           wallId: pascalWallId,
-          position: [s, 0, 0],
-          width: door.width / 1000,
-          height: door.height / 1000,
+          position: [safeNum(clampedS, 0), 0, 0],
+          width: safeNum(door.width, 900) / 1000,
+          height: safeNum(door.height, 2100) / 1000,
           metadata: {
             canonicalId: door.id,
             doorType: door.type,
@@ -205,23 +218,31 @@ export function canonicalToPascal(building: Building): CanonicalToPascalResult {
 
       if (pascalWallId && hostWall) {
         const winId = toPascalId('window', win.id);
-        const dx = (hostWall.endPoint.x - hostWall.startPoint.x) / 1000;
-        const dy = (hostWall.endPoint.y - hostWall.startPoint.y) / 1000;
-        const vx = (win.position.x - hostWall.startPoint.x) / 1000;
-        const vy = (win.position.y - hostWall.startPoint.y) / 1000;
+        const hx1 = safeNum(hostWall.startPoint?.x, 0);
+        const hy1 = safeNum(hostWall.startPoint?.y, 0);
+        const hx2 = safeNum(hostWall.endPoint?.x, 0);
+        const hy2 = safeNum(hostWall.endPoint?.y, 0);
+        const dx = (hx2 - hx1) / 1000;
+        const dy = (hy2 - hy1) / 1000;
+        const wpx = safeNum(win.position?.x, hx1);
+        const wpy = safeNum(win.position?.y, hy1);
+        const vx = (wpx - hx1) / 1000;
+        const vy = (wpy - hy1) / 1000;
         const wallLen = Math.hypot(dx, dy);
-        const s = wallLen > 0 ? Math.max(0, Math.min(wallLen, (vx * dx + vy * dy) / wallLen)) : 0;
-        const sillM = (win.sillHeight ?? 900) / 1000;
+        const rawS = wallLen > 0 ? (vx * dx + vy * dy) / wallLen : 0;
+        const s = safeNum(rawS, 0);
+        const clampedS = wallLen > 0 ? Math.max(0, Math.min(wallLen, s)) : 0;
+        const sillM = safeNum(win.sillHeight, 900) / 1000;
 
         const winNode = WindowNode.parse({
           id: winId,
           name: `Window ${win.id}`,
           parentId: pascalWallId,
           wallId: pascalWallId,
-          position: [s, sillM, 0],
-          width: win.width / 1000,
-          height: win.height / 1000,
-          sillHeight: sillM,
+          position: [safeNum(clampedS, 0), safeNum(sillM, 0.9), 0],
+          width: safeNum(win.width, 1200) / 1000,
+          height: safeNum(win.height, 1200) / 1000,
+          sillHeight: safeNum(sillM, 0.9),
           metadata: {
             canonicalId: win.id,
             windowType: win.type,

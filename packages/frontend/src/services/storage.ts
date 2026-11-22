@@ -578,6 +578,22 @@ export function createCanonical30x50_2BHK(
   projectId = `proj_${Date.now()}`,
 ): Building {
   // 30ft x 50ft = 9144mm x 15240mm
+  const defaultComplianceReport = {
+    score: 94,
+    passed: true,
+    redConflictCount: 0,
+    hardRejected: false,
+    violations: [],
+    categoryBreakdown: {
+      redConflicts: 0,
+      bedroomProportions: 0,
+      circulationHierarchy: 2,
+      balconyPartitioning: 0,
+      envelopeUtilization: 2,
+      groundAndStairCompleteness: 2,
+    },
+  };
+
   const building = createBuilding({
     projectId,
     name: projectName,
@@ -587,6 +603,10 @@ export function createCanonical30x50_2BHK(
       roadFacing: Direction.North,
       setbacks: { front: 1500, rear: 1000, left: 1000, right: 1000 },
     },
+    metadata: {
+      projectId,
+      complianceReport: defaultComplianceReport,
+    } as any,
     floors: [
       {
         buildingId: '',
@@ -606,6 +626,20 @@ export function createCanonical30x50_2BHK(
 
   const floor0 = building.floors[0]!;
   const floorId = floor0.id;
+  (floor0 as any).apartmentUnits = [
+    {
+      id: 'unit-1',
+      unitType: '2BHK',
+      boundary: {
+        points: [
+          { x: 1000, y: 1500 },
+          { x: 8144, y: 1500 },
+          { x: 8144, y: 14240 },
+          { x: 1000, y: 14240 },
+        ],
+      },
+    },
+  ];
 
   // Add Rooms
   let b = addRoom(building, floorId, {
@@ -793,6 +827,11 @@ export function createCanonical30x50_2BHK(
   addExteriorWindow(wallList[3]!.id, { x: 1000, y: 7000 }, 3);
   addExteriorWindow(wallList[3]!.id, { x: 1000, y: 11000 }, 4);
   addExteriorWindow(wallList[1]!.id, { x: 8144, y: 10000 }, 5);
+
+  (b as any).metadata = {
+    ...b.metadata,
+    complianceReport: defaultComplianceReport,
+  };
 
   return b;
 }

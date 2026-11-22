@@ -231,6 +231,10 @@ async function runTests() {
   const resetRes = await fetch(`${BASE_URL}/api/projects/proj-uat-01/pascal-scene/reset`, {
     method: 'POST',
   });
+  if (resetRes.status !== 200) {
+    const errText = await resetRes.text();
+    console.error(`  [DEBUG] Reset failed with status ${resetRes.status}: ${errText}`);
+  }
   assert(resetRes.status === 200, 'POST /pascal-scene/reset restores scene from 2D plan');
 
   // 9. Async Job Queue Submission & Polling

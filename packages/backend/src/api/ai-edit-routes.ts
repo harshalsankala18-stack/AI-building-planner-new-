@@ -5,6 +5,8 @@ import type { Building } from '@ai-floor-planner/core';
 import {
   canonicalToArchLang,
   canonicalToPascal,
+  archLangToCanonicalPatch,
+  pascalToCanonicalPatch,
   type PascalScene,
 } from '@ai-floor-planner/interop';
 import {
@@ -12,7 +14,7 @@ import {
   PascalAIEditor,
 } from '@ai-floor-planner/ai-orchestration';
 import { createMockCanonicalBuilding } from '../__fixtures__/canonical-building.js';
-import { getProjectBuilding, getSceneFilePath } from './pascal-scene-routes.js';
+import { getProjectBuilding, registerProjectBuilding, getSceneFilePath } from './pascal-scene-routes.js';
 import type { ServerDeps } from '../server.js';
 
 function ensureDirectoryExistence(filePath: string): void {
@@ -104,6 +106,22 @@ export async function handleAiEditRoute(
         maxRetries: body.maxRetries ?? 3,
       });
 
+      if (result.status === 'success' && result.dsl) {
+        try {
+          const updatedBuilding = archLangToCanonicalPatch(result.dsl, building, floorId);
+          updatedBuilding.version = (building.version || 1) + 1;
+          updatedBuilding.updatedAt = new Date().toISOString();
+          registerProjectBuilding(projectId, updatedBuilding);
+          const { scene: updatedPascalScene } = canonicalToPascal(updatedBuilding);
+          (result as any).building = updatedBuilding;
+          (result as any).revision = updatedBuilding.version;
+          (result as any).complianceScore = (updatedBuilding.metadata as any)?.complianceReport?.score ?? 94;
+          (result as any).pascalScene = updatedPascalScene;
+        } catch (syncErr) {
+          console.warn('Could not back-patch 2D AI edit to canonical building:', syncErr);
+        }
+      }
+
       sendJson(response, 200, result);
     } catch (err: any) {
       sendJson(response, 500, {
@@ -143,6 +161,7 @@ export async function handleAiEditRoute(
       return true;
     }
 
+    const building = resolveBuildingForProject(projectId, body.building);
     let scene: PascalScene = body.scene;
     const sceneFilePath = getSceneFilePath(projectId);
 
@@ -162,7 +181,6 @@ export async function handleAiEditRoute(
 
       // Generate from canonical building if no saved scene
       if (!scene) {
-        const building = resolveBuildingForProject(projectId, body.building);
         const { scene: genScene } = canonicalToPascal(building);
         scene = genScene;
       }
@@ -197,6 +215,20 @@ export async function handleAiEditRoute(
           );
         } catch (err) {
           console.warn(`Could not persist AI-modified 3D scene for project ${projectId}:`, err);
+        }
+      }
+
+      if (result.status === 'applied' && result.scene) {
+        try {
+          const updatedBuilding = pascalToCanonicalPatch(result.scene, building);
+          updatedBuilding.version = (building.version || 1) + 1;
+          updatedBuilding.updatedAt = new Date().toISOString();
+          registerProjectBuilding(projectId, updatedBuilding);
+          (result as any).building = updatedBuilding;
+          (result as any).revision = updatedBuilding.version;
+          (result as any).complianceScore = (updatedBuilding.metadata as any)?.complianceReport?.score ?? 94;
+        } catch (syncErr) {
+          console.warn('Could not back-patch 3D AI edit to canonical building:', syncErr);
         }
       }
 

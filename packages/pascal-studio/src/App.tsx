@@ -141,6 +141,12 @@ export const App: React.FC = () => {
         await pluginInitPromise;
 
         switch (message.type) {
+          case 'PING': {
+            const webgpuSupported = typeof navigator !== 'undefined' && Boolean((navigator as any).gpu);
+            sendToHost({ type: 'STUDIO_READY', webgpuSupported });
+            break;
+          }
+
           case 'LOAD_SCENE': {
             const { nodes, rootNodeIds } = message.scene;
             pendingSceneRef.current = { nodes, rootNodeIds };

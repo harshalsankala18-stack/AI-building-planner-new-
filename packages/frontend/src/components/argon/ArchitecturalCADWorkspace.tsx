@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { RefreshCw, Columns } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import type { EngineeringOverlay } from '@ai-floor-planner/core';
 import {
   GeometryValidator,
@@ -111,80 +111,49 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
       className="flex h-full min-h-0 flex-col bg-slate-950 text-slate-100"
       aria-label="Architectural CAD workspace"
     >
-      <div className="flex flex-wrap items-center gap-3 border-b border-slate-700 p-3">
-        <strong>2D CAD Studio</strong>
-        <div className="flex items-center rounded-lg bg-slate-900 p-0.5 border border-slate-700" role="group" aria-label="CAD Studio mode switcher">
-          <button
-            type="button"
-            onClick={() => setWorkspaceMode('engineering')}
-            className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${workspaceMode === 'engineering'
-              ? 'bg-amber-500 text-slate-950 shadow'
-              : 'text-slate-300 hover:text-white'
+      {/* SLIM UNIFIED ACTION BAR (~38px) */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-900/90 px-3 py-1.5 text-xs">
+        {/* Left: Floor Selector + Quick Actions */}
+        <div className="flex items-center gap-2 overflow-x-auto" aria-label="Model floors">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1">Floor:</span>
+          {editor.building.floors.map((floor) => (
+            <button
+              key={floor.id}
+              onClick={() => editor.switchFloor(floor.id)}
+              className={`shrink-0 rounded px-2.5 py-1 text-xs font-semibold transition ${
+                floor.id === editor.activeFloor.id
+                  ? 'bg-amber-500 text-slate-950 shadow-xs'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
               }`}
-          >
-            2D Engineering
-          </button>
-          <button
-            type="button"
-            onClick={() => setWorkspaceMode('archlang')}
-            className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${workspaceMode === 'archlang'
-              ? 'bg-emerald-500 text-slate-950 shadow'
-              : 'text-slate-300 hover:text-white'
-              }`}
-          >
-            2D Presentation (ArchLang)
-          </button>
-          <button
-            type="button"
-            onClick={() => setWorkspaceMode('3d-standard')}
-            className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${workspaceMode === '3d-standard'
-              ? 'bg-cyan-500 text-slate-950 shadow'
-              : 'text-slate-300 hover:text-white'
-              }`}
-          >
-            3D Standard
-          </button>
-          <button
-            type="button"
-            onClick={() => setWorkspaceMode('3d-pascal')}
-            className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${workspaceMode === '3d-pascal'
-              ? 'bg-sky-500 text-slate-950 shadow'
-              : 'text-slate-300 hover:text-white'
-              }`}
-          >
-            3D Pascal Studio (Edit)
-          </button>
-          <button
-            type="button"
-            onClick={() => setWorkspaceMode('split-view')}
-            className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition-colors ${workspaceMode === 'split-view'
-              ? 'bg-indigo-500 text-white shadow'
-              : 'text-slate-300 hover:text-white'
-              }`}
-          >
-            <Columns className="w-3.5 h-3.5" />
-            <span>Split View (2D + 3D)</span>
-          </button>
+            >
+              {floor.name}
+            </button>
+          ))}
+
+          {onRegeneratePlan && (
+            <button
+              type="button"
+              disabled={isGenerating || !canRegenerate}
+              onClick={onRegeneratePlan}
+              className="ml-2 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 px-2.5 py-1 text-xs font-semibold disabled:opacity-50 transition"
+            >
+              {isGenerating ? 'Regenerating...' : `Regen Seed #${generationSeed}`}
+            </button>
+          )}
+
+          {onOpenEditPlan && (
+            <button
+              type="button"
+              onClick={onOpenEditPlan}
+              className="rounded bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/40 px-2.5 py-1 text-xs font-semibold transition"
+            >
+              Edit Plan
+            </button>
+          )}
         </div>
-        {onRegeneratePlan && (
-          <button
-            type="button"
-            disabled={isGenerating || !canRegenerate}
-            onClick={onRegeneratePlan}
-            className="rounded bg-amber-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50"
-          >
-            {isGenerating ? 'Regenerating...' : `Regenerate Variant (Seed #${generationSeed})`}
-          </button>
-        )}
-        {onOpenEditPlan && (
-          <button
-            type="button"
-            onClick={onOpenEditPlan}
-            className="rounded bg-indigo-500 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-400"
-          >
-            Edit Plan
-          </button>
-        )}
+
+        {/* Right: Telemetry, Compliance Score, Export */}
+        <div className="flex items-center gap-2 shrink-0">
         <span
           className={`rounded-full border px-2.5 py-1 text-xs font-medium ${aiTelemetry?.geminiInvoked
             ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
@@ -228,22 +197,8 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
         <span role="status" className="text-xs text-amber-200">
           {exportStatus}
         </span>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-700 bg-slate-900 p-3">
-        <div
-          className="flex shrink-0 gap-2 overflow-x-auto"
-          aria-label="Model floors"
-        >
-          {editor.building.floors.map((floor) => (
-            <button
-              key={floor.id}
-              onClick={() => editor.switchFloor(floor.id)}
-              className={`shrink-0 rounded px-3 py-2 text-xs ${floor.id === editor.activeFloor.id ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-200'}`}
-            >
-              {floor.name}
-            </button>
-          ))}
         </div>
+      </div>
         {workspaceMode === 'engineering' && (
           <div
             className="argon-tool-strip argon-discipline-toolbar flex flex-wrap items-center gap-1.5"
@@ -284,7 +239,6 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
             ))}
           </div>
         )}
-      </div>
       {workspaceMode === 'archlang' && (
         <ArchLangPresentationSheet
           building={editor.building}

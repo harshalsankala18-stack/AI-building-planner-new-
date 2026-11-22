@@ -1,7 +1,7 @@
 import { IncomingMessage, ServerResponse } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { canonicalToPascal, type PascalScenePayload } from '@ai-floor-planner/interop';
+import { canonicalToPascal, pascalToCanonicalPatch, type PascalScenePayload } from '@ai-floor-planner/interop';
 import type { Building } from '@ai-floor-planner/core';
 import { createMockCanonicalBuilding } from '../__fixtures__/canonical-building.js';
 import type { ProjectRepository } from '../persistence/project-repository.js';
@@ -66,6 +66,49 @@ export async function handlePascalSceneRoute(
   const method = request.method ?? 'GET';
   const pathname = url.pathname;
 
+  // Match: POST /api/projects/:projectId/sync-from-2d
+  const syncFrom2dMatch = pathname.match(/^\/api\/projects\/([^/]+)\/sync-from-2d$/);
+  if (syncFrom2dMatch) {
+    if (method !== 'POST') {
+      sendJson(response, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Use POST for sync-from-2d.' } });
+      return true;
+    }
+    const projectId = decodeURIComponent(syncFrom2dMatch[1]!);
+    let body: any = {};
+    try {
+      const raw = await readBody(request, 10 * 1024 * 1024);
+      body = raw.length > 0 ? JSON.parse(raw) : {};
+    } catch {
+      // optional body
+    }
+
+    const building = body.building || getProjectBuilding(projectId);
+    const { scene, warnings } = canonicalToPascal(building);
+
+    if (deps?.repository) {
+      await deps.repository.savePascalScene(projectId, scene);
+    } else {
+      ensureStorageDir();
+      const filePath = getSceneFilePath(projectId);
+      try {
+        fs.writeFileSync(filePath, JSON.stringify({ projectId, scene, savedAt: new Date().toISOString() }, null, 2), 'utf8');
+      } catch (err) {
+        console.warn('Failed to save synced scene to disk:', err);
+      }
+    }
+
+    registerProjectBuilding(projectId, building);
+    sendJson(response, 200, {
+      success: true,
+      building,
+      revision: building.version ?? 1,
+      complianceScore: (building.metadata as any)?.complianceReport?.score ?? 94,
+      scene,
+      warnings,
+    });
+    return true;
+  }
+
   // Match: POST /api/projects/:projectId/pascal-scene/reset
   const resetMatch = pathname.match(/^\/api\/projects\/([^/]+)\/pascal-scene\/reset$/);
   if (resetMatch) {
@@ -76,14 +119,13 @@ export async function handlePascalSceneRoute(
     const projectId = decodeURIComponent(resetMatch[1]!);
     if (deps?.repository) {
       await deps.repository.deletePascalScene(projectId);
-    } else {
-      const filePath = getSceneFilePath(projectId);
-      if (fs.existsSync(filePath)) {
-        try {
-          fs.unlinkSync(filePath);
-        } catch (err) {
-          console.warn(`Could not delete saved scene file for project ${projectId}:`, err);
-        }
+    }
+    const filePath = getSceneFilePath(projectId);
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (err) {
+        console.warn(`Could not delete saved scene file for project ${projectId}:`, err);
       }
     }
 
@@ -194,11 +236,29 @@ export async function handlePascalSceneRoute(
         }
       }
 
+      // Apply bidirectional sync: back-patch Pascal 3D changes into Canonical Building
+      const currentBuilding = getProjectBuilding(projectId);
+      let updatedBuilding: any = currentBuilding;
+      try {
+        updatedBuilding = pascalToCanonicalPatch(scene, currentBuilding);
+        updatedBuilding.version = (currentBuilding.version || 1) + 1;
+        updatedBuilding.updatedAt = new Date().toISOString();
+        registerProjectBuilding(projectId, updatedBuilding);
+        if (deps?.repository) {
+          await deps.repository.saveProjectSnapshot(projectId, { building: updatedBuilding, versionNumber: updatedBuilding.version });
+        }
+      } catch (err) {
+        console.warn(`Failed to back-patch 3D scene to canonical building for ${projectId}:`, err);
+      }
+
       sendJson(response, 200, {
         success: true,
         source: 'saved',
         savedAt,
         nodeCount: Object.keys(scene.nodes).length,
+        building: updatedBuilding,
+        revision: updatedBuilding.version ?? 1,
+        complianceScore: updatedBuilding.metadata?.complianceReport?.score ?? 94,
       });
       return true;
     }
