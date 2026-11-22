@@ -25,11 +25,16 @@ export interface SetViewModeMessage {
   mode: 'edit' | 'viewer';
 }
 
+export interface PingMessage {
+  type: 'PING';
+}
+
 export type HostToStudioMessage =
   | LoadSceneMessage
   | RequestSaveMessage
   | ImportIfcBufferMessage
-  | SetViewModeMessage;
+  | SetViewModeMessage
+  | PingMessage;
 
 export interface StudioReadyMessage {
   type: 'STUDIO_READY';
@@ -77,6 +82,7 @@ const HOST_MESSAGE_TYPES: ReadonlySet<string> = new Set<HostToStudioMessage['typ
   'REQUEST_SAVE',
   'IMPORT_IFC_BUFFER',
   'SET_VIEW_MODE',
+  'PING',
 ]);
 
 const STUDIO_MESSAGE_TYPES: ReadonlySet<string> = new Set<StudioToHostMessage['type']>([
