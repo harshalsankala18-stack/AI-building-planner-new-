@@ -15,8 +15,10 @@ import type {
   Polygon,
   Wall,
   Point,
+  Door,
+  Window,
 } from '@ai-floor-planner/core';
-import { RoomType, WallType, RenderLayer, DoorType, SwingDirection, type SiteZoneKind } from '@ai-floor-planner/core';
+import { RoomType, WallType, RenderLayer, DoorType, SwingDirection, WindowType, type SiteZoneKind } from '@ai-floor-planner/core';
 import { getFloorContentBounds, computeStairSolids, canonicalStairSolids, polygonBoundingBox, AnnotationLayout, roomAnnotation, polygonCentroid, pointInPolygon } from '@ai-floor-planner/geometry-engine';
 import { worldToScreen, fitToView, scaleToScreen } from './coordinate-transform';
 import { resolveConfig } from './render-config';
@@ -535,6 +537,30 @@ function openingTransform(wall: Wall, position: Point, width: number, transform:
   return `translate(${center.x.toFixed(3)} ${center.y.toFixed(3)}) rotate(${angle.toFixed(3)})`;
 }
 
+function getDoorTag(door: Door): string {
+  if (door.category === 'main_entry_single') return 'D1';
+  if (door.category === 'main_entry_double') return 'ED1';
+  if (door.category === 'balcony_sliding_glass') return 'SD1';
+  if (door.category === 'french_double_glass') return 'FD1';
+  if (door.category === 'service_exterior') return 'SD2';
+  if (door.category === 'bedroom_hinged') return 'D2';
+  if (door.category === 'bathroom_flush') return 'D3';
+  if (door.category === 'pocket_sliding') return 'PD1';
+  if (door.category === 'interior_double') return 'DD1';
+  if (door.category === 'cased_archway' || door.type === DoorType.OpenPassage) return 'OP1';
+  return door.type === DoorType.Double ? 'DD1' : door.type === DoorType.Sliding ? 'SD1' : 'D1';
+}
+
+function getWindowTag(win: Window): string {
+  if (win.category === 'sliding_wide') return 'W2';
+  if (win.category === 'casement_double') return 'W1';
+  if (win.category === 'fixed_picture') return 'PW1';
+  if (win.category === 'full_height_glazing') return 'CW1';
+  if (win.category === 'kitchen_casement') return 'KW1';
+  if (win.category === 'bath_ventilator' || win.type === WindowType.Ventilator) return 'V1';
+  return win.type === WindowType.Sliding ? 'W2' : 'W1';
+}
+
 function renderDoors(floor: Floor, transform: ViewTransform): string {
   const elements: string[] = [];
 
@@ -574,46 +600,55 @@ function renderDoors(floor: Floor, transform: ViewTransform): string {
     const swingSign = door.swingDirection === SwingDirection.Outward ? -1 : 1;
     const halfW = scaledWidth / 2;
 
+    const tag = getDoorTag(door);
+
     if (door.type === DoorType.OpenPassage) {
       elements.push(
-        `<g data-entity-type="door" data-entity-id="${door.id}" data-door-type="open_passage" transform="${tr}">
-  <title>Open passage - no door leaf</title>
+        `<g data-entity-type="door" data-entity-id="${door.id}" data-door-type="open_passage" data-door-tag="${tag}" transform="${tr}">
+  <title>Open passage - no door leaf (${tag})</title>
   <line x1="${(-halfW).toFixed(1)}" y1="0" x2="${halfW.toFixed(1)}" y2="0" stroke="#94a3b8" stroke-width="0.75" stroke-dasharray="3,3"/>
+  <text x="0" y="-4" font-size="7" fill="#64748b" font-weight="bold" text-anchor="middle">${tag}</text>
 </g>`,
       );
     } else if (door.type === DoorType.Sliding) {
       elements.push(
-        `<g data-entity-type="door" data-entity-id="${door.id}" data-door-type="sliding" transform="${tr}" class="door-group" style="cursor: pointer;">
-  <title>Sliding Door ${door.id}</title>
+        `<g data-entity-type="door" data-entity-id="${door.id}" data-door-type="sliding" data-door-tag="${tag}" transform="${tr}" class="door-group" style="cursor: pointer;">
+  <title>Sliding Door ${door.id} (${tag})</title>
   <line x1="${(-halfW).toFixed(1)}" y1="-2" x2="0" y2="-2" stroke="#0066cc" stroke-width="1.2"/>
   <line x1="0" y1="2" x2="${halfW.toFixed(1)}" y2="2" stroke="#0066cc" stroke-width="1.2"/>
+  <polygon points="-6,-3 -2,-1 -6,1" fill="#0066cc"/>
+  <polygon points="6,1 2,3 6,5" fill="#0066cc"/>
+  <text x="0" y="-5" font-size="7" fill="#0284c7" font-weight="bold" text-anchor="middle">${tag}</text>
 </g>`,
       );
     } else if (door.type === DoorType.Double) {
       const leafW = scaledWidth / 2;
       elements.push(
-        `<g data-entity-type="door" data-entity-id="${door.id}" data-door-type="${door.type}" transform="${tr}" class="door-group" style="--hinge-x: ${(-halfW).toFixed(1)}px; --hinge-y: 0px; --swing-sign: ${swingSign}; cursor: pointer;">
-  <title>Double Door ${door.id} (click to toggle)</title>
+        `<g data-entity-type="door" data-entity-id="${door.id}" data-door-type="${door.type}" data-door-tag="${tag}" transform="${tr}" class="door-group" style="--hinge-x: ${(-halfW).toFixed(1)}px; --hinge-y: 0px; --swing-sign: ${swingSign}; cursor: pointer;">
+  <title>Double Door ${door.id} (${tag})</title>
   <line class="door-leaf" x1="${(-halfW).toFixed(1)}" y1="0" x2="${(-halfW).toFixed(1)}" y2="${(swingSign * leafW).toFixed(1)}" stroke="#0066cc" stroke-width="0.8"/>
   <line class="door-leaf" x1="${halfW.toFixed(1)}" y1="0" x2="${halfW.toFixed(1)}" y2="${(swingSign * leafW).toFixed(1)}" stroke="#0066cc" stroke-width="0.8"/>
   <path class="door-swing-arc" d="M ${(-halfW).toFixed(1)} ${(swingSign * leafW).toFixed(1)} A ${leafW.toFixed(1)} ${leafW.toFixed(1)} 0 0 ${swingSign > 0 ? 0 : 1} 0 0" fill="none" stroke="#0066cc" stroke-width="0.5" stroke-dasharray="2,2"/>
   <path class="door-swing-arc" d="M ${halfW.toFixed(1)} ${(swingSign * leafW).toFixed(1)} A ${leafW.toFixed(1)} ${leafW.toFixed(1)} 0 0 ${swingSign > 0 ? 1 : 0} 0 0" fill="none" stroke="#0066cc" stroke-width="0.5" stroke-dasharray="2,2"/>
+  <text x="0" y="${(swingSign * (leafW + 7)).toFixed(1)}" font-size="7" fill="#0284c7" font-weight="bold" text-anchor="middle">${tag}</text>
 </g>`,
       );
     } else if (door.type === DoorType.Folding) {
       elements.push(
-        `<g data-entity-type="door" data-entity-id="${door.id}" data-door-type="${door.type}" transform="${tr}" class="door-group" style="cursor: pointer;">
-  <title>Folding Door ${door.id}</title>
+        `<g data-entity-type="door" data-entity-id="${door.id}" data-door-type="${door.type}" data-door-tag="${tag}" transform="${tr}" class="door-group" style="cursor: pointer;">
+  <title>Folding Door ${door.id} (${tag})</title>
   <polyline points="${(-halfW).toFixed(1)},0 ${(-halfW / 2).toFixed(1)},${(swingSign * 6).toFixed(1)} 0,0 ${(halfW / 2).toFixed(1)},${(swingSign * 6).toFixed(1)} ${halfW.toFixed(1)},0" fill="none" stroke="#0066cc" stroke-width="0.8"/>
+  <text x="0" y="${(swingSign * 10).toFixed(1)}" font-size="7" fill="#0284c7" font-weight="bold" text-anchor="middle">${tag}</text>
 </g>`,
       );
     } else {
       // DoorType.Single
       elements.push(
-        `<g data-entity-type="door" data-entity-id="${door.id}" data-door-type="${door.type}" transform="${tr}" class="door-group" style="--hinge-x: ${(-halfW).toFixed(1)}px; --hinge-y: 0px; --swing-sign: ${swingSign}; cursor: pointer;">
-  <title>Single Door ${door.id} (click to toggle open/closed)</title>
+        `<g data-entity-type="door" data-entity-id="${door.id}" data-door-type="${door.type}" data-door-tag="${tag}" transform="${tr}" class="door-group" style="--hinge-x: ${(-halfW).toFixed(1)}px; --hinge-y: 0px; --swing-sign: ${swingSign}; cursor: pointer;">
+  <title>Single Door ${door.id} (${tag})</title>
   <path class="door-leaf" d="M ${(-halfW).toFixed(0)} 0 L ${(-halfW).toFixed(0)} ${(swingSign * scaledWidth).toFixed(0)}" stroke="#0066cc" stroke-width="0.8"/>
   <path class="door-swing-arc" d="M ${(-halfW).toFixed(1)} ${(swingSign * scaledWidth).toFixed(1)} A ${scaledWidth.toFixed(1)} ${scaledWidth.toFixed(1)} 0 0 ${swingSign > 0 ? 0 : 1} ${halfW.toFixed(1)} 0" fill="none" stroke="#0066cc" stroke-width="0.5" stroke-dasharray="2,2"/>
+  <text x="${(-halfW / 2).toFixed(1)}" y="${(swingSign * (scaledWidth * 0.4 + 4)).toFixed(1)}" font-size="7" fill="#0284c7" font-weight="bold" text-anchor="middle">${tag}</text>
 </g>`,
       );
     }
@@ -714,8 +749,9 @@ function renderWindows(floor: Floor, transform: ViewTransform, includeChajjas = 
     const halfThick = wallThickScaled / 2;
     const glassOffset = Math.max(1, halfThick * 0.45);
 
+    const winTag = getWindowTag(win);
     elements.push(
-      `<g data-entity-type="window" data-entity-id="${win.id}" transform="${tr}">
+      `<g data-entity-type="window" data-entity-id="${win.id}" data-window-tag="${winTag}" transform="${tr}">
   <!-- Plancraft End Jamb Frame Lines -->
   <line x1="${(-halfW).toFixed(1)}" y1="${(-halfThick).toFixed(1)}" x2="${(-halfW).toFixed(1)}" y2="${halfThick.toFixed(1)}" stroke="#1e293b" stroke-width="0.8"/>
   <line x1="${halfW.toFixed(1)}" y1="${(-halfThick).toFixed(1)}" x2="${halfW.toFixed(1)}" y2="${halfThick.toFixed(1)}" stroke="#1e293b" stroke-width="0.8"/>
@@ -723,6 +759,8 @@ function renderWindows(floor: Floor, transform: ViewTransform, includeChajjas = 
   <line x1="${(-halfW).toFixed(1)}" y1="${(-glassOffset).toFixed(1)}" x2="${halfW.toFixed(1)}" y2="${(-glassOffset).toFixed(1)}" stroke="#38bdf8" stroke-width="0.9"/>
   <line x1="${(-halfW).toFixed(1)}" y1="0" x2="${halfW.toFixed(1)}" y2="0" stroke="#0284c7" stroke-width="0.65" stroke-dasharray="3,2"/>
   <line x1="${(-halfW).toFixed(1)}" y1="${glassOffset.toFixed(1)}" x2="${halfW.toFixed(1)}" y2="${glassOffset.toFixed(1)}" stroke="#38bdf8" stroke-width="0.9"/>
+  <!-- Schedule Tag -->
+  <text x="0" y="${(-halfThick - 3).toFixed(1)}" font-size="7" fill="#0284c7" font-weight="bold" text-anchor="middle">${winTag}</text>
 </g>`,
     );
   }

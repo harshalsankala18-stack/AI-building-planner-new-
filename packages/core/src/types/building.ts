@@ -25,7 +25,7 @@ import type {
   WindowType,
 } from './enums';
 import type { CanonicalFurnitureItem, PlancraftDslOutput } from './furniture';
-import type { OpeningStyleId } from './customizable';
+import type { OpeningStyleId, DoorCategory, WindowCategory } from './customizable';
 import type { StructuralBeam, CanonicalStaircase } from './structural';
 
 // ─── Site & Plot ────────────────────────────────────────────────────────────
@@ -188,6 +188,10 @@ export interface Door {
   readonly swingDirection: SwingDirection;
   readonly connectsRooms: readonly [string, string];
   readonly styleId?: OpeningStyleId;
+  readonly category?: DoorCategory | string;
+  readonly placement?: 'exterior' | 'interior';
+  readonly style?: string;
+  readonly leafCount?: number;
   readonly materialId?: string;
   readonly widthMm?: number;
   readonly heightMm?: number;
@@ -210,6 +214,10 @@ export interface Window {
   readonly type: WindowType;
   readonly roomId: string;
   readonly styleId?: OpeningStyleId;
+  readonly category?: WindowCategory | string;
+  readonly placement?: 'exterior' | 'interior';
+  readonly style?: string;
+  readonly leafCount?: number;
   readonly materialId?: string;
   readonly widthMm?: number;
   readonly heightMm?: number;
@@ -237,6 +245,8 @@ export interface Stair {
   readonly connectsFloors: readonly [number, number];
   /** Stable identity shared by every representation of one vertical stair core. */
   readonly verticalCoreId?: string;
+  readonly totalRiseMm?: number;
+  readonly handrail?: boolean;
 }
 
 // ─── Column ─────────────────────────────────────────────────────────────────

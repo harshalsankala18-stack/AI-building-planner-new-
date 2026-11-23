@@ -272,3 +272,14 @@ export {
   type AvailableReferenceFile,
   type ReferenceDropRecord,
 } from './apartment/reference-library';
+export {
+  synthesizeFloorOpenings,
+  synthesizeBuildingOpenings,
+} from './apartment/opening-synthesizer';
+export {
+  solveFloorStructuralColumns,
+  solveBuildingStructuralGrid,
+} from './apartment/structural-grid-solver';
+export {
+  synthesizeCanonicalBuilding,
+} from './apartment/canonical-synthesizer';

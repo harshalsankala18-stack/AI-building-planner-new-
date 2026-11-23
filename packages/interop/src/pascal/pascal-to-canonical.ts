@@ -1,5 +1,5 @@
-import type { Building, Room, Wall, Door, Window } from '@ai-floor-planner/core';
-import { WallType, DoorType, WindowType, RoomType, SwingDirection } from '@ai-floor-planner/core';
+import type { Building, Room, Wall, Door, Window, Stair } from '@ai-floor-planner/core';
+import { WallType, DoorType, WindowType, RoomType, SwingDirection, StairType, Direction } from '@ai-floor-planner/core';
 import type { PascalScene } from './canonical-to-pascal';
 
 /**
@@ -137,9 +137,13 @@ export function pascalToCanonicalPatch(
         position: posX !== 0 && posY !== 0 ? { x: posX, y: posY } : existingDoor?.position || { x: 0, y: 0 },
         width: Math.round((dn.width ?? 0.9) * 1000),
         height: Math.round((dn.height ?? 2.1) * 1000),
-        type: existingDoor?.type || DoorType.Single,
-        swingDirection: existingDoor?.swingDirection || SwingDirection.Inward,
+        type: existingDoor?.type || (dn.doorType === 'sliding' ? DoorType.Sliding : dn.doorType === 'double' ? DoorType.Double : DoorType.Single),
+        swingDirection: existingDoor?.swingDirection || (dn.swingDirection === 'outward' ? SwingDirection.Outward : SwingDirection.Inward),
         connectsRooms: connects,
+        category: existingDoor?.category || dn.metadata?.category || dn.metadata?.doorCategory,
+        placement: existingDoor?.placement ?? 'interior',
+        leafCount: dn.leafCount ?? existingDoor?.leafCount ?? 1,
+        style: existingDoor?.style,
       });
     }
 
@@ -175,13 +179,64 @@ export function pascalToCanonicalPatch(
         width: Math.round((wn.width ?? 1.2) * 1000),
         height: Math.round((wn.height ?? 1.2) * 1000),
         sillHeight: Math.round((wn.sillHeight ?? 0.9) * 1000),
-        type: existingWindow?.type || WindowType.Casement,
+        sillHeightMm: Math.round((wn.sillHeight ?? 0.9) * 1000),
+        type: existingWindow?.type || (wn.windowType === 'sliding' ? WindowType.Sliding : wn.windowType === 'louvered' ? WindowType.Ventilator : WindowType.Casement),
         roomId: existingWindow?.roomId || '',
+        category: existingWindow?.category || wn.metadata?.category || wn.metadata?.windowCategory,
+        placement: existingWindow?.placement ?? 'exterior',
+        leafCount: existingWindow?.leafCount ?? 2,
+        style: existingWindow?.style,
       });
     }
 
     if (updatedDoors.length > 0) floor.doors = updatedDoors;
     if (updatedWindows.length > 0) floor.windows = updatedWindows;
+
+    // Extract Stairs belonging to this level
+    const stairNodes = Object.values(nodes).filter(
+      (n: any) => (n.type === 'stair' || n.id?.startsWith('stair_')) && n.parentId === levelNode.id,
+    ) as any[];
+
+    if (stairNodes.length > 0) {
+      const updatedStairs: Stair[] = [];
+      for (const sn of stairNodes) {
+        const rawStairId = fromPascalId(sn.id, 'stair');
+        const existingStair = floor.stairs?.find((s: any) => s.id === rawStairId);
+        const sx = Math.round((sn.position?.[0] ?? 0) * 1000);
+        const sy = Math.round((sn.position?.[1] ?? 0) * 1000);
+        const sw = Math.round((sn.width ?? 2.4) * 1000);
+        const riserCount = sn.stepCount ?? existingStair?.riserCount ?? 18;
+        const floorHeight = floor.floorHeight ?? 3000;
+
+        updatedStairs.push({
+          id: existingStair?.id || rawStairId,
+          floorId: floor.id,
+          type: existingStair?.type || StairType.UShaped,
+          boundary: existingStair?.boundary || {
+            points: [
+              { x: sx, y: sy },
+              { x: sx + sw, y: sy },
+              { x: sx + sw, y: sy + 4800 },
+              { x: sx, y: sy + 4800 },
+            ],
+          },
+          x: sx,
+          y: sy,
+          width: sw,
+          length: existingStair?.length ?? 4800,
+          direction: existingStair?.direction ?? Direction.North,
+          riserCount,
+          riserHeight: Math.round(floorHeight / riserCount),
+          treadDepth: existingStair?.treadDepth ?? 250,
+          landingWidth: existingStair?.landingWidth ?? 1200,
+          connectsFloors: existingStair?.connectsFloors ?? [floor.level, floor.level + 1],
+          verticalCoreId: existingStair?.verticalCoreId ?? `core_stair_${rawStairId}`,
+          totalRiseMm: floorHeight,
+          handrail: true,
+        });
+      }
+      floor.stairs = updatedStairs;
+    }
 
     // 3. Extract Zones (Rooms)
     const zoneNodes = Object.values(nodes).filter(

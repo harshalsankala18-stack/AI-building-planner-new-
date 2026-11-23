@@ -73,6 +73,7 @@ import {
   extractHttpStatus,
   isTransientHttpError,
   isAuthHttpError,
+  synthesizeCanonicalBuilding,
 } from '@ai-floor-planner/ai-orchestration';
 import {
   type Building,
@@ -1506,8 +1507,8 @@ export class GenerationOrchestrator {
         rejectionStage: candidateAccepted ? null : 'HARD_VALIDATION',
         evaluationStatus: gated.status,
         stages: { ...stages },
-        building: extraction.building,
-        deterministicBuilding: slotDeterministicBuilding,
+        building: extraction.building ? synthesizeCanonicalBuilding(extraction.building) : null,
+        deterministicBuilding: slotDeterministicBuilding ? synthesizeCanonicalBuilding(slotDeterministicBuilding) : null,
         artifact,
         validation: {
           isValid: extraction.validation?.isValid ?? false,
@@ -1640,8 +1641,8 @@ export class GenerationOrchestrator {
         rejectionStage: plan.isValid ? null : 'HARD_VALIDATION',
         evaluationStatus: fallbackGated.status,
         stages: fallbackStages,
-        building: plan.building,
-        deterministicBuilding: plan.building,
+        building: plan.building ? synthesizeCanonicalBuilding(plan.building) : null,
+        deterministicBuilding: plan.building ? synthesizeCanonicalBuilding(plan.building) : null,
         artifact: fallbackArtifact,
         validation: {
           isValid: plan.isValid,
@@ -2044,8 +2045,10 @@ export class GenerationOrchestrator {
       rejectionStage: (isValid || fallbackPlanBuilding) ? null : 'HARD_VALIDATION',
       evaluationStatus: gated.status,
       stages: { ...stages },
-      building: extraction.building ?? fallbackPlanBuilding,
-      deterministicBuilding: fallbackPlanBuilding,
+      building: (extraction.building ?? fallbackPlanBuilding)
+        ? synthesizeCanonicalBuilding((extraction.building ?? fallbackPlanBuilding)!)
+        : null,
+      deterministicBuilding: fallbackPlanBuilding ? synthesizeCanonicalBuilding(fallbackPlanBuilding) : null,
       artifact,
       validation: {
         isValid: isValid || fallbackPlanBuilding !== null,

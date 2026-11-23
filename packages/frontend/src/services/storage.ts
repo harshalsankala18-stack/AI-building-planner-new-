@@ -24,6 +24,7 @@ import {
   WindowType,
   WallType,
   Direction,
+  ColumnShape,
   deriveSpaceProgramFromBuilding,
   deriveFootprintIntent,
   createGenerationControlState,
@@ -773,9 +774,13 @@ export function createCanonical30x50_2BHK(
     floorId,
     wallId: frontWallId,
     position: { x: 3000, y: 1500 },
-    width: 1000,
+    width: 1050,
     height: 2100,
     type: DoorType.Single,
+    category: 'main_entry_single',
+    placement: 'exterior',
+    style: 'Solid Teak Main Door with Brass Hardware',
+    leafCount: 1,
     connectsRooms: ['__outside__', b.floors[0]!.rooms[0]!.id],
   });
 
@@ -785,51 +790,83 @@ export function createCanonical30x50_2BHK(
     position: { x: number; y: number },
     roomA: number,
     roomB: number,
+    opts: { category?: any; width?: number; style?: string; type?: DoorType } = {},
   ) => {
     b = addDoor(b, floorId, {
       floorId,
       wallId,
       position,
-      width: 900,
+      width: opts.width ?? 900,
       height: 2100,
-      type: DoorType.Single,
+      type: opts.type ?? DoorType.Single,
+      category: opts.category ?? 'bedroom_hinged',
+      placement: 'interior',
+      style: opts.style ?? 'Flush Panel Door',
+      leafCount: 1,
       connectsRooms: [rooms[roomA]!.id, rooms[roomB]!.id],
     });
   };
-  addInternalDoor(wallList[4]!.id, { x: 5000, y: 2500 }, 0, 1);
-  addInternalDoor(wallList[6]!.id, { x: 2000, y: 6300 }, 0, 3);
-  addInternalDoor(wallList[6]!.id, { x: 6000, y: 6300 }, 1, 2);
-  addInternalDoor(wallList[7]!.id, { x: 2000, y: 10300 }, 3, 4);
-  addInternalDoor(wallList[5]!.id, { x: 6000, y: 9500 }, 2, 5);
+  addInternalDoor(wallList[4]!.id, { x: 5000, y: 2500 }, 0, 1, { category: 'cased_archway', width: 1200, type: DoorType.OpenPassage, style: 'Molded Archway Opening' });
+  addInternalDoor(wallList[6]!.id, { x: 2000, y: 6300 }, 0, 3, { category: 'bedroom_hinged', width: 900, type: DoorType.Single, style: 'Flush Panel Bedroom Door' });
+  addInternalDoor(wallList[6]!.id, { x: 6000, y: 6300 }, 1, 2, { category: 'pocket_sliding', width: 900, type: DoorType.Sliding, style: 'Glass Pocket Door' });
+  addInternalDoor(wallList[7]!.id, { x: 2000, y: 10300 }, 3, 4, { category: 'bedroom_hinged', width: 900, type: DoorType.Single, style: 'Flush Panel Bedroom Door' });
+  addInternalDoor(wallList[5]!.id, { x: 6000, y: 9500 }, 2, 5, { category: 'bathroom_flush', width: 750, type: DoorType.Single, style: 'Waterproof Flush Door' });
 
   b = addWindow(b, floorId, {
     floorId,
     wallId: wallList[3]?.id || 'ext_wall_west',
     position: { x: 1000, y: 3500 },
-    width: 1500,
+    width: 1800,
     height: 1200,
     sillHeight: 900,
     type: WindowType.Sliding,
+    category: 'sliding_wide',
+    placement: 'exterior',
+    leafCount: 2,
     roomId: b.floors[0]!.rooms[0]!.id,
   });
 
-  const addExteriorWindow = (wallId: string, position: { x: number; y: number }, roomIndex: number) => {
+  const addExteriorWindow = (wallId: string, position: { x: number; y: number }, roomIndex: number, opts: { category?: any; width?: number; height?: number; sillHeight?: number; type?: WindowType } = {}) => {
     b = addWindow(b, floorId, {
       floorId,
       wallId,
       position,
-      width: 1000,
-      height: 1200,
-      sillHeight: 900,
-      type: WindowType.Sliding,
+      width: opts.width ?? 1200,
+      height: opts.height ?? 1200,
+      sillHeight: opts.sillHeight ?? 900,
+      type: opts.type ?? WindowType.Casement,
+      category: opts.category ?? 'casement_double',
+      placement: 'exterior',
+      leafCount: 2,
       roomId: rooms[roomIndex]!.id,
     });
   };
-  addExteriorWindow(wallList[1]!.id, { x: 8144, y: 2500 }, 1);
-  addExteriorWindow(wallList[1]!.id, { x: 8144, y: 7000 }, 2);
-  addExteriorWindow(wallList[3]!.id, { x: 1000, y: 7000 }, 3);
-  addExteriorWindow(wallList[3]!.id, { x: 1000, y: 11000 }, 4);
-  addExteriorWindow(wallList[1]!.id, { x: 8144, y: 10000 }, 5);
+  addExteriorWindow(wallList[1]!.id, { x: 8144, y: 2500 }, 1, { category: 'casement_double', width: 1200, height: 1200, sillHeight: 900 });
+  addExteriorWindow(wallList[1]!.id, { x: 8144, y: 7000 }, 2, { category: 'kitchen_casement', width: 1050, height: 1050, sillHeight: 1050 });
+  addExteriorWindow(wallList[3]!.id, { x: 1000, y: 7000 }, 3, { category: 'casement_double', width: 1200, height: 1200, sillHeight: 900 });
+  addExteriorWindow(wallList[3]!.id, { x: 1000, y: 11000 }, 4, { category: 'casement_double', width: 1200, height: 1200, sillHeight: 900 });
+  addExteriorWindow(wallList[1]!.id, { x: 8144, y: 10000 }, 5, { category: 'bath_ventilator', width: 600, height: 600, sillHeight: 1650, type: WindowType.Ventilator });
+
+  const colCoords = [
+    { x: 1000, y: 1500 }, { x: 5000, y: 1500 }, { x: 8144, y: 1500 },
+    { x: 1000, y: 6300 }, { x: 5000, y: 6300 }, { x: 8144, y: 6300 },
+    { x: 1000, y: 10300 }, { x: 5000, y: 10300 }, { x: 8144, y: 10300 },
+    { x: 1000, y: 14240 }, { x: 5000, y: 14240 }, { x: 8144, y: 14240 },
+  ];
+  const columns = colCoords.map((pos, idx) => ({
+    id: `col_f0_c${idx + 1}`,
+    floorId,
+    position: pos,
+    width: 300,
+    depth: 300,
+    shape: ColumnShape.Rectangular,
+    isStructural: true,
+    gridReference: `C${idx + 1}`,
+  }));
+  b = {
+    ...b,
+    floors: b.floors.map(f => f.id === floorId ? { ...f, columns } : f),
+  };
 
   (b as any).metadata = {
     ...b.metadata,

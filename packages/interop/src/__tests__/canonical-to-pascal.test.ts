@@ -9,6 +9,8 @@ import {
   DoorNode,
   WindowNode,
   ZoneNode,
+  StairNode,
+  StairSegmentNode,
 } from '@pascal-app/core';
 import { canonicalToPascal } from '../pascal/canonical-to-pascal.js';
 import { canonicalToArchLang } from '../archlang/canonical-to-archlang.js';
@@ -63,8 +65,10 @@ describe('canonicalToPascal Translator', () => {
 
     expect(floorWallNodes.length).toBeGreaterThanOrEqual(expectedFloor.walls.length);
     expect(floorZoneNodes.length).toBe(expectedFloor.rooms.length);
-    // 1 base floor slab + mapped stair slab nodes
-    expect(floorSlabNodes.length).toBe(1 + (expectedFloor.stairs?.length ?? 0));
+    // 1 base floor slab
+    expect(floorSlabNodes.length).toBe(1);
+    const floorStairNodes = Object.values(scene.nodes).filter((n) => n.type === 'stair' && n.parentId === levelId);
+    expect(floorStairNodes.length).toBe(expectedFloor.stairs?.length ?? 0);
     expect(floorDoorNodes.length).toBe(expectedFloor.doors.length);
     expect(floorWindowNodes.length).toBe(expectedFloor.windows.length);
 
@@ -99,6 +103,12 @@ describe('canonicalToPascal Translator', () => {
           break;
         case 'column':
           expect(ColumnNode.safeParse(node).success).toBe(true);
+          break;
+        case 'stair':
+          expect(StairNode.safeParse(node).success).toBe(true);
+          break;
+        case 'stair-segment':
+          expect(StairSegmentNode.safeParse(node).success).toBe(true);
           break;
       }
 

@@ -9,6 +9,7 @@
 import {
   generateArchitecturalProposal,
   type BaseAIProvider,
+  synthesizeCanonicalBuilding,
 } from '@ai-floor-planner/ai-orchestration';
 import type { MultiSheetApartmentConfig } from '@ai-floor-planner/core';
 import {
@@ -120,10 +121,12 @@ export async function handleProjectGeneration(
       }
     }
 
+    const synthesizedBuilding = synthesizeCanonicalBuilding(pipelineResult.building);
     return {
       status: 200,
       json: {
         ...pipelineResult,
+        building: synthesizedBuilding,
         complianceReport,
         proposal: proposalResult.proposal,
         telemetry: proposalResult.telemetry,

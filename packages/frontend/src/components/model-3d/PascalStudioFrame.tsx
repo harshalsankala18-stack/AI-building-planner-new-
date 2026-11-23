@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { Building } from '@ai-floor-planner/core';
 import {
   AlertTriangle,
+  Boxes,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { Ai3DEditDrawer } from './Ai3DEditDrawer';
+import { ElementsCatalogDrawer } from './ElementsCatalogDrawer';
 import {
   isStudioMessage,
   isValidBridgeOrigin,
@@ -47,6 +49,7 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
   const [resetting, setResetting] = useState(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
+  const [isCatalogOpen, setIsCatalogOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [warningsExpanded, setWarningsExpanded] = useState(false);
@@ -478,6 +481,18 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
             <Sparkles className="w-3.5 h-3.5" />
             <span>AI 3D Edit</span>
           </button>
+
+          {/* Elements Catalog Drawer Button */}
+          <button
+            type="button"
+            data-testid="pascal-elements-catalog-btn"
+            onClick={() => setIsCatalogOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium transition cursor-pointer"
+            title="Open Doors, Windows & Staircase Elements Catalog"
+          >
+            <Boxes className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Elements Catalog</span>
+          </button>
         </div>
       </div>
 
@@ -504,6 +519,12 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
         isSubmitting={aiEditing3d}
         studioReady={studioReady}
         onResetFrom2D={handleReset}
+      />
+
+      {/* 3D Elements Catalog Drawer (Collapsible Right Slide-Over) */}
+      <ElementsCatalogDrawer
+        isOpen={isCatalogOpen}
+        onClose={() => setIsCatalogOpen(false)}
       />
 
       {/* Reset Confirmation Themed Modal (No native browser alert) */}

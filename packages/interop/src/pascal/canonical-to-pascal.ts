@@ -1,4 +1,11 @@
-import type { Building, Point } from '@ai-floor-planner/core';
+import {
+  type Building,
+  type Point,
+  DoorType,
+  WindowType,
+  SwingDirection,
+  RoomType,
+} from '@ai-floor-planner/core';
 import {
   type AnyNode,
   SiteNode,
@@ -10,6 +17,8 @@ import {
   DoorNode,
   WindowNode,
   ZoneNode,
+  StairNode,
+  StairSegmentNode,
 } from '@pascal-app/core';
 import { synthesizeFloorWalls, type SynthesizedWall } from './wall-synthesizer.js';
 
@@ -29,9 +38,12 @@ export interface CanonicalToPascalOptions {
 
 /**
  * Sanitizes and normalizes an identifier to Pascal's expected template prefix format.
- * (e.g. 'site_1', 'building_main', 'level_0', 'wall_ext_1')
+ * (e.g. 'site_1', 'building_main', 'level_0', 'wall_ext_1', 'stair_core_1', 'sseg_fl1')
  */
-export function toPascalId(prefix: 'site' | 'building' | 'level' | 'slab' | 'wall' | 'door' | 'window' | 'zone' | 'column', rawId: string): string {
+export function toPascalId(
+  prefix: 'site' | 'building' | 'level' | 'slab' | 'wall' | 'door' | 'window' | 'zone' | 'column' | 'stair' | 'sseg',
+  rawId: string,
+): string {
   const sanitized = rawId.replace(/[^a-zA-Z0-9_-]/g, '_');
   if (sanitized.startsWith(`${prefix}_`)) {
     return sanitized;
@@ -121,11 +133,38 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
     }
 
     const slabId = toPascalId('slab', floor.id);
+
+    // Carve matching stairwell cutout holes in upper floor slab for stairs ascending from lower floor
+    const slabHoles: [number, number][][] = [];
+    if (floor.level > 0) {
+      const lowerFloor = building.floors.find(f => f.level === floor.level - 1);
+      const penetratingStairs = lowerFloor?.stairs ?? [];
+      for (const st of penetratingStairs) {
+        if (st.boundary?.points && st.boundary.points.length >= 3) {
+          slabHoles.push(
+            st.boundary.points.map(p => [safeNum(p.x) / 1000, safeNum(p.y) / 1000] as [number, number]),
+          );
+        } else {
+          const sx = safeNum(st.x, 0) / 1000;
+          const sy = safeNum(st.y, 0) / 1000;
+          const sw = safeNum(st.width, 2400) / 1000;
+          const sl = safeNum(st.length, 4800) / 1000;
+          slabHoles.push([
+            [sx, sy],
+            [sx + sw, sy],
+            [sx + sw, sy + sl],
+            [sx, sy + sl],
+          ]);
+        }
+      }
+    }
+
     const slabNode = SlabNode.parse({
       id: slabId,
       name: `${floor.name} Slab`,
       parentId: levelId,
       polygon: slabPoints,
+      holes: slabHoles.length > 0 ? slabHoles : undefined,
       thickness: safeNum(floor.slabThicknessMm, 200) / 1000,
     });
     nodes[slabId] = slabNode;
@@ -265,6 +304,21 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
         const doorWidthM = safeNum(door.width, 900) / 1000;
         const clampedS = wallLen > 0 ? Math.max(0.1, Math.min(Math.max(0.1, wallLen - doorWidthM - 0.1), s)) : 0;
 
+        let pascalDoorType: 'hinged' | 'double' | 'sliding' | 'pocket' | 'french' = 'hinged';
+        if (door.category === 'balcony_sliding_glass' || door.type === DoorType.Sliding) {
+          pascalDoorType = 'sliding';
+        } else if (door.category === 'pocket_sliding') {
+          pascalDoorType = 'pocket';
+        } else if (door.category === 'french_double_glass') {
+          pascalDoorType = 'french';
+        } else if (
+          door.category === 'main_entry_double' ||
+          door.category === 'interior_double' ||
+          door.type === DoorType.Double
+        ) {
+          pascalDoorType = 'double';
+        }
+
         const doorNode = DoorNode.parse({
           id: doorId,
           name: `Door ${door.id}`,
@@ -273,8 +327,13 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
           position: [safeNum(clampedS, 0), 0, 0],
           width: doorWidthM,
           height: safeNum(door.height, 2100) / 1000,
+          doorCategory: 'interior',
+          doorType: pascalDoorType,
+          leafCount: door.leafCount ?? (pascalDoorType === 'double' || pascalDoorType === 'french' ? 2 : 1),
+          swingDirection: door.swingDirection === SwingDirection.Outward ? 'outward' : 'inward',
           metadata: {
             canonicalId: door.id,
+            category: door.category,
             doorType: door.type,
             swingDirection: door.swingDirection,
             connectsRooms: door.connectsRooms,
@@ -312,6 +371,19 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
         const clampedS = wallLen > 0 ? Math.max(0.1, Math.min(Math.max(0.1, wallLen - winWidthM - 0.1), s)) : 0;
         const sillM = safeNum(win.sillHeight, 900) / 1000;
 
+        let pascalWinType: 'casement' | 'sliding' | 'fixed' | 'louvered' = 'casement';
+        if (win.category === 'sliding_wide' || win.type === WindowType.Sliding) {
+          pascalWinType = 'sliding';
+        } else if (
+          win.category === 'fixed_picture' ||
+          win.category === 'full_height_glazing' ||
+          win.type === WindowType.Fixed
+        ) {
+          pascalWinType = 'fixed';
+        } else if (win.category === 'bath_ventilator' || win.type === WindowType.Ventilator) {
+          pascalWinType = 'louvered';
+        }
+
         const winNode = WindowNode.parse({
           id: winId,
           name: `Window ${win.id}`,
@@ -321,10 +393,14 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
           width: winWidthM,
           height: safeNum(win.height, 1200) / 1000,
           sillHeight: safeNum(sillM, 0.9),
+          windowType: pascalWinType,
+          sill: true,
           metadata: {
             canonicalId: win.id,
+            category: win.category,
             windowType: win.type,
             roomId: win.roomId,
+            sillHeightMm: win.sillHeightMm,
           },
         });
 
@@ -340,20 +416,32 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
       const wallId = toPascalId('wall', wall.id);
       const children = wallChildrenMap.get(wallId) ?? [];
 
+      const isBalconyWall =
+        (wall.wallUse as string) === 'BALCONY' ||
+        (wall.wallUse as string) === 'PARAPET' ||
+        ((wall.roomIds?.some(rId => {
+          const r = floor.rooms?.find(rm => rm.id === rId);
+          return r && r.type === RoomType.Balcony;
+        })) && wall.wallUse === 'EXTERNAL');
+
+      const wallHeightM = isBalconyWall ? 1.05 : floorHeightM;
+      const wallThicknessM = isBalconyWall ? 0.15 : safeNum(wall.thickness, 230) / 1000;
+
       const wallNode = WallNode.parse({
         id: wallId,
-        name: wall.isSynthesized ? `Partition ${wall.id}` : `Wall ${wall.id}`,
+        name: isBalconyWall ? `Balcony Railing ${wall.id}` : (wall.isSynthesized ? `Partition ${wall.id}` : `Wall ${wall.id}`),
         parentId: levelId,
         start: [safeNum(wall.startPoint.x) / 1000, safeNum(wall.startPoint.y) / 1000],
         end: [safeNum(wall.endPoint.x) / 1000, safeNum(wall.endPoint.y) / 1000],
-        thickness: safeNum(wall.thickness, 230) / 1000,
-        height: floorHeightM,
+        thickness: wallThicknessM,
+        height: wallHeightM,
         children,
         metadata: {
           canonicalId: wall.canonicalWallId ?? wall.id,
           wallUse: wall.wallUse,
           roomIds: wall.roomIds,
           isSynthesized: wall.isSynthesized,
+          isBalconyRailing: isBalconyWall,
         },
       });
 
@@ -389,42 +477,93 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
       }
     }
 
-    // 2f. Stairs (mapped to visible stepped architectural slab nodes)
+    // 2f. Stairs (mapped to real native Pascal StairNode + StairSegmentNode assemblies)
     if (floor.stairs && floor.stairs.length > 0) {
       for (const stair of floor.stairs) {
-        const stairId = toPascalId('slab', `stair_${stair.id}`);
-        let stairPoints: [number, number][];
-        if (stair.boundary?.points && stair.boundary.points.length >= 3) {
-          stairPoints = stair.boundary.points.map(p => [safeNum(p.x) / 1000, safeNum(p.y) / 1000] as [number, number]);
-        } else {
-          const sx = safeNum(stair.x, 0) / 1000;
-          const sy = safeNum(stair.y, 0) / 1000;
-          const sw = safeNum(stair.width, 1200) / 1000;
-          const sl = safeNum(stair.length, 3000) / 1000;
-          stairPoints = [
-            [sx, sy],
-            [sx + sw, sy],
-            [sx + sw, sy + sl],
-            [sx, sy + sl],
-          ];
-        }
+        const stairId = toPascalId('stair', stair.id);
+        const sx = safeNum(stair.x, 0) / 1000;
+        const sy = safeNum(stair.y, 0) / 1000;
+        const sw = safeNum(stair.width, 2400) / 1000;
+        const sl = safeNum(stair.length, 4800) / 1000;
+        const riserCount = safeNum(stair.riserCount, 18);
+        const halfRisers = Math.floor(riserCount / 2);
+        const stairChildren: string[] = [];
 
-        const stairSlab = SlabNode.parse({
+        // Dog-legged / U-shaped / Straight flights
+        const flightWidth = sw / 2;
+        const landingDepth = 1.2;
+        const flightLength = Math.max(1.5, sl - landingDepth);
+        const midHeight = floorHeightM / 2;
+
+        const flight1Id = toPascalId('sseg', `${stair.id}_fl1`);
+        const flight1 = StairSegmentNode.parse({
+          id: flight1Id,
+          name: `${stair.id} Flight 1`,
+          parentId: stairId,
+          position: [0, 0, 0],
+          rotation: 0,
+          width: flightWidth,
+          length: flightLength,
+          height: midHeight,
+          stepCount: halfRisers,
+          segmentType: 'stair',
+        });
+        nodes[flight1Id] = flight1;
+        stairChildren.push(flight1Id);
+
+        const landingId = toPascalId('sseg', `${stair.id}_land`);
+        const landing = StairSegmentNode.parse({
+          id: landingId,
+          name: `${stair.id} Landing`,
+          parentId: stairId,
+          position: [0, flightLength, midHeight],
+          rotation: 0,
+          width: sw,
+          length: landingDepth,
+          height: 0.15,
+          segmentType: 'landing',
+        });
+        nodes[landingId] = landing;
+        stairChildren.push(landingId);
+
+        const flight2Id = toPascalId('sseg', `${stair.id}_fl2`);
+        const flight2 = StairSegmentNode.parse({
+          id: flight2Id,
+          name: `${stair.id} Flight 2`,
+          parentId: stairId,
+          position: [flightWidth, flightLength, midHeight],
+          rotation: 180,
+          width: flightWidth,
+          length: flightLength,
+          height: midHeight,
+          stepCount: riserCount - halfRisers,
+          segmentType: 'stair',
+        });
+        nodes[flight2Id] = flight2;
+        stairChildren.push(flight2Id);
+
+        const stairNode = StairNode.parse({
           id: stairId,
-          name: `Stair Core ${stair.id}`,
+          name: `Staircase ${stair.id}`,
           parentId: levelId,
-          polygon: stairPoints,
-          thickness: Math.max(0.15, floorHeightM * 0.4),
+          position: [sx, sy, 0],
+          rotation: 0,
+          width: sw,
+          totalRise: floorHeightM,
+          stairType: 'straight',
+          stepCount: riserCount,
+          children: stairChildren,
           metadata: {
             canonicalId: stair.id,
-            elementKind: 'staircase',
-            stairType: stair.type ?? 'dog-legged',
-            risers: stair.riserCount ?? 18,
+            stairType: stair.type,
+            risers: riserCount,
             treadDepthMm: stair.treadDepth ?? 250,
+            connectsFloors: stair.connectsFloors,
+            verticalCoreId: stair.verticalCoreId,
           },
         });
 
-        nodes[stairId] = stairSlab;
+        nodes[stairId] = stairNode;
         levelChildren.push(stairId);
       }
     }

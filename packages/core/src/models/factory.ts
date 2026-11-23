@@ -196,6 +196,10 @@ export interface CreateDoorParams {
   type?: DoorType;
   swingDirection?: SwingDirection;
   connectsRooms: [string, string];
+  category?: string;
+  placement?: 'exterior' | 'interior';
+  leafCount?: number;
+  style?: string;
 }
 
 export interface CreateWindowParams {
@@ -205,8 +209,13 @@ export interface CreateWindowParams {
   width?: number;
   height?: number;
   sillHeight?: number;
+  sillHeightMm?: number;
   type?: WindowType;
   roomId: string;
+  category?: string;
+  placement?: 'exterior' | 'interior';
+  leafCount?: number;
+  style?: string;
 }
 
 export interface CreateStairParams {
@@ -222,6 +231,8 @@ export interface CreateStairParams {
   treadDepth?: number;
   connectsFloors: [number, number];
   verticalCoreId?: string;
+  totalRiseMm?: number;
+  handrail?: boolean;
 }
 
 export interface CreateColumnParams {
@@ -396,6 +407,10 @@ export function createDoor(params: CreateDoorParams): Door {
     type: params.type ?? DoorType.Single,
     swingDirection: params.swingDirection ?? SwingDirection.Inward,
     connectsRooms: params.connectsRooms,
+    category: params.category,
+    placement: params.placement,
+    leafCount: params.leafCount,
+    style: params.style,
   };
 }
 
@@ -411,9 +426,14 @@ export function createWindow(params: CreateWindowParams): Window {
     position: params.position,
     width: params.width ?? DEFAULTS.WINDOW_WIDTH,
     height: params.height ?? DEFAULTS.WINDOW_HEIGHT,
-    sillHeight: params.sillHeight ?? DEFAULTS.WINDOW_SILL_HEIGHT,
+    sillHeight: params.sillHeight ?? params.sillHeightMm ?? DEFAULTS.WINDOW_SILL_HEIGHT,
+    sillHeightMm: params.sillHeightMm ?? params.sillHeight ?? DEFAULTS.WINDOW_SILL_HEIGHT,
     type: params.type ?? WindowType.Sliding,
     roomId: params.roomId,
+    category: params.category,
+    placement: params.placement,
+    leafCount: params.leafCount,
+    style: params.style,
   };
 }
 
@@ -443,6 +463,8 @@ export function createStair(params: CreateStairParams): Stair {
     landingWidth: params.width,
     connectsFloors: params.connectsFloors,
     verticalCoreId: params.verticalCoreId,
+    totalRiseMm: params.totalRiseMm ?? DEFAULTS.FLOOR_HEIGHT,
+    handrail: params.handrail ?? true,
   };
 }
 
