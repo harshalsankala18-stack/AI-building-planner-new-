@@ -146,6 +146,7 @@ export interface Room {
   readonly privacyRequirement: PrivacyLevel;
   readonly ventilationRequired: boolean;
   readonly isFixed: boolean;
+  readonly locked?: boolean;
 }
 
 // ─── Wall ───────────────────────────────────────────────────────────────────

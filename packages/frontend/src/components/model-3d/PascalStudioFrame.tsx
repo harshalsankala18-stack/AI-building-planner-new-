@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { Ai3DEditDrawer } from './Ai3DEditDrawer';
-import { ElementsCatalogDrawer } from './ElementsCatalogDrawer';
+import { ElementsCatalogDrawer, type CatalogPlacementItem } from './ElementsCatalogDrawer';
 import {
   isStudioMessage,
   isValidBridgeOrigin,
@@ -339,6 +339,86 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
     }
   };
 
+  const handlePlaceCatalogItem = async (item: CatalogPlacementItem) => {
+    if (!building) return;
+    setStatusMessage(`Placing ${item.name} in 3D...`);
+
+    const activeFloor = building.floors.find(f => f.id === activeFloorId) ?? building.floors[0];
+    if (!activeFloor) return;
+
+    let updatedBuilding: Building;
+
+    if (item.type === 'interior') {
+      const targetRoom = activeFloor.rooms.find(r => {
+        const typeStr = String(r.type).toUpperCase();
+        if (item.kind?.includes('bed') && typeStr.includes('BED')) return true;
+        if (item.kind?.includes('sofa') && typeStr.includes('LIV')) return true;
+        if (item.kind?.includes('tv') && typeStr.includes('LIV')) return true;
+        if (item.kind?.includes('dining') && (typeStr.includes('DIN') || typeStr.includes('LIV'))) return true;
+        if (item.kind?.includes('kitchen') && typeStr.includes('KIT')) return true;
+        if ((item.kind?.includes('wc') || item.kind?.includes('shower') || item.kind?.includes('basin')) && typeStr.includes('BATH')) return true;
+        return false;
+      }) ?? activeFloor.rooms[0];
+
+      const cx = targetRoom ? targetRoom.x + targetRoom.width / 2 : 5000;
+      const cy = targetRoom ? targetRoom.y + targetRoom.height / 2 : 5000;
+      const w = item.defaultWidthMm;
+      const d = item.defaultDepthMm ?? 800;
+
+      const newFurniture = {
+        id: `furn_${item.kind ?? item.id}_${Date.now().toString(36)}`,
+        type: (item.kind?.includes('bed') ? 'bed' : item.kind?.includes('sofa') ? 'sofa' : item.kind?.includes('toilet') || item.kind?.includes('wc') ? 'toilet' : item.kind?.includes('shower') ? 'shower' : item.kind?.includes('table') ? 'table' : item.kind?.includes('fan') ? 'ceiling_fan' : item.kind?.includes('light') ? 'downlight' : 'table') as any,
+        roomId: targetRoom?.id ?? 'room_1',
+        floorId: activeFloor.id,
+        category: (item.categoryType ?? 'furniture') as any,
+        kind: item.kind ?? item.id,
+        label: item.name,
+        mountType: item.mountType ?? 'floor',
+        xMm: Math.round(cx - w / 2),
+        yMm: Math.round(cy - d / 2),
+        widthMm: w,
+        depthMm: d,
+        heightMm: item.defaultHeightMm ?? 800,
+        elevationMm: item.mountType === 'ceiling' ? 2600 : 0,
+        rotationDeg: 0,
+        layer: 'A-FURN' as const,
+      };
+
+      const updatedFloors = building.floors.map(f =>
+        f.id === activeFloor.id ? { ...f, furniture: [...(f.furniture ?? []), newFurniture] } : f
+      );
+      updatedBuilding = { ...building, floors: updatedFloors };
+    } else {
+      setStatusMessage(`Selected ${item.name} for placement`);
+      return;
+    }
+
+    onBuildingUpdate?.(updatedBuilding);
+
+    // Live sync to Pascal 3D scene
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/pascal-scene/reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ building: updatedBuilding }),
+      });
+      if (res.ok) {
+        const data = await res.json() as any;
+        if (data.scene) {
+          postToStudio({
+            type: 'LOAD_SCENE',
+            projectId,
+            scene: data.scene,
+          });
+          setIsDirty(true);
+          setStatusMessage(`Placed ${item.name} in 3D scene`);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to live-sync placed catalog item to 3D scene:', err);
+    }
+  };
+
   return (
     <div className="relative flex flex-col w-full h-full bg-slate-950 text-slate-100 overflow-hidden">
       {/* WebGPU fallback notice if not supported */}
@@ -525,6 +605,7 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
       <ElementsCatalogDrawer
         isOpen={isCatalogOpen}
         onClose={() => setIsCatalogOpen(false)}
+        onPlaceElement={handlePlaceCatalogItem}
       />
 
       {/* Reset Confirmation Themed Modal (No native browser alert) */}

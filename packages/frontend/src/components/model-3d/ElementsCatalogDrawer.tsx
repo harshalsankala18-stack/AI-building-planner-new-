@@ -3,26 +3,60 @@ import {
   Boxes,
   DoorClosed,
   DoorOpen,
+  Fan,
   Layers,
   Search,
-  Sparkles,
+  Sofa,
   SquareDashedBottom,
   X,
 } from 'lucide-react';
-import { DOOR_CATALOG, WINDOW_CATALOG } from '@ai-floor-planner/core';
+import {
+  DOOR_CATALOG,
+  WINDOW_CATALOG,
+  INTERIOR_CATALOG,
+} from '@ai-floor-planner/core';
 
-export interface ElementsCatalogDrawerProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSelectElement?: (elementInfo: { type: 'door' | 'window' | 'stair'; category: string; defaultWidthMm: number; defaultHeightMm: number }) => void;
+export interface CatalogPlacementItem {
+  readonly id: string;
+  readonly type: 'door' | 'window' | 'stair' | 'interior';
+  readonly category: string;
+  readonly name: string;
+  readonly tag: string;
+  readonly defaultWidthMm: number;
+  readonly defaultHeightMm: number;
+  readonly defaultDepthMm?: number;
+  readonly mountType?: 'floor' | 'wall' | 'ceiling';
+  readonly kind?: string;
+  readonly categoryType?: string;
 }
 
-export type CatalogCategoryTab = 'all' | 'exterior_doors' | 'interior_doors' | 'windows' | 'stairs' | 'interiors_b2';
+export interface ElementsCatalogDrawerProps {
+  readonly isOpen: boolean;
+  readonly onClose: () => void;
+  readonly onSelectElement?: (elementInfo: {
+    type: 'door' | 'window' | 'stair';
+    category: string;
+    defaultWidthMm: number;
+    defaultHeightMm: number;
+  }) => void;
+  readonly onPlaceElement?: (item: CatalogPlacementItem) => void;
+}
+
+export type CatalogCategoryTab =
+  | 'all'
+  | 'exterior_doors'
+  | 'interior_doors'
+  | 'windows'
+  | 'stairs'
+  | 'interiors'
+  | 'interiors_b2'
+  | 'lighting';
 
 export const ElementsCatalogDrawer: React.FC<ElementsCatalogDrawerProps> = ({
   isOpen,
   onClose,
   onSelectElement,
+  onPlaceElement,
 }) => {
   const [activeTab, setActiveTab] = useState<CatalogCategoryTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -70,19 +104,26 @@ export const ElementsCatalogDrawer: React.FC<ElementsCatalogDrawerProps> = ({
     },
   ];
 
-  const handleItemClick = (item: { type: 'door' | 'window' | 'stair'; tag: string; category: string; width: number; height: number }) => {
-    setSelectedTag(item.tag);
-    onSelectElement?.({
-      type: item.type,
-      category: item.category,
-      defaultWidthMm: item.width,
-      defaultHeightMm: item.height,
-    });
-  };
+  const interiorItems = INTERIOR_CATALOG.filter(i => i.category !== 'lighting');
+  const lightingItems = INTERIOR_CATALOG.filter(i => i.category === 'lighting' || i.mountType === 'ceiling');
 
   const matchesSearch = (text: string) => {
     if (!searchQuery.trim()) return true;
     return text.toLowerCase().includes(searchQuery.toLowerCase());
+  };
+
+  const handlePlace = (item: CatalogPlacementItem) => {
+    setSelectedTag(item.tag);
+    if (onPlaceElement) {
+      onPlaceElement(item);
+    } else if (onSelectElement && item.type !== 'interior') {
+      onSelectElement({
+        type: item.type,
+        category: item.category,
+        defaultWidthMm: item.defaultWidthMm,
+        defaultHeightMm: item.defaultHeightMm,
+      });
+    }
   };
 
   return (
@@ -94,7 +135,7 @@ export const ElementsCatalogDrawer: React.FC<ElementsCatalogDrawerProps> = ({
       onClick={onClose}
     >
       <div
-        className="w-[320px] max-w-full h-full bg-[#FFFFFF] border-l border-[#E2DDD5] shadow-2xl flex flex-col text-[#181D23] animate-slideInRight"
+        className="w-[340px] max-w-full h-full bg-[#FFFFFF] border-l border-[#E2DDD5] shadow-2xl flex flex-col text-[#181D23] animate-slideInRight"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -105,7 +146,7 @@ export const ElementsCatalogDrawer: React.FC<ElementsCatalogDrawerProps> = ({
             </div>
             <div>
               <h3 className="text-xs font-bold text-[#181D23]">Elements Catalog</h3>
-              <p className="text-[10px] text-[#5C6672]">Doors, Windows & Staircases</p>
+              <p className="text-[10px] text-[#5C6672]">2D + 3D Architectural Fixtures</p>
             </div>
           </div>
           <button
@@ -180,13 +221,22 @@ export const ElementsCatalogDrawer: React.FC<ElementsCatalogDrawerProps> = ({
             Stairs
           </button>
           <button
-            data-testid="catalog-tab-interiors_b2"
-            onClick={() => setActiveTab('interiors_b2')}
+            data-testid="catalog-tab-interiors"
+            onClick={() => setActiveTab('interiors')}
             className={`px-2 py-1 rounded font-medium whitespace-nowrap transition ${
-              activeTab === 'interiors_b2' ? 'bg-sky-600 text-white' : 'text-slate-600 hover:bg-slate-200'
+              activeTab === 'interiors' || activeTab === 'interiors_b2' ? 'bg-sky-600 text-white' : 'text-slate-600 hover:bg-slate-200'
             }`}
           >
             Interiors
+          </button>
+          <button
+            data-testid="catalog-tab-lighting"
+            onClick={() => setActiveTab('lighting')}
+            className={`px-2 py-1 rounded font-medium whitespace-nowrap transition ${
+              activeTab === 'lighting' ? 'bg-sky-600 text-white' : 'text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            Lighting & Fans
           </button>
         </div>
 
@@ -204,11 +254,10 @@ export const ElementsCatalogDrawer: React.FC<ElementsCatalogDrawerProps> = ({
                   <div
                     key={d.category}
                     data-testid={`catalog-item-${d.category}`}
-                    onClick={() => handleItemClick({ type: 'door', tag: d.tag, category: d.category, width: d.defaultWidthMm, height: d.defaultHeightMm })}
-                    className={`p-2.5 rounded-lg border transition cursor-pointer ${
+                    className={`p-2.5 rounded-lg border transition ${
                       selectedTag === d.tag
                         ? 'border-sky-500 bg-sky-50/50 shadow-xs'
-                        : 'border-[#E2DDD5] bg-white hover:border-slate-400 hover:bg-slate-50/50'
+                        : 'border-[#E2DDD5] bg-white hover:border-slate-400'
                     }`}
                   >
                     <div className="flex items-center justify-between">
@@ -225,6 +274,24 @@ export const ElementsCatalogDrawer: React.FC<ElementsCatalogDrawerProps> = ({
                     <p className="text-[10px] text-slate-400 mt-1 leading-tight line-clamp-2">
                       {d.description}
                     </p>
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        data-testid={`place-catalog-item-${d.category}`}
+                        onClick={() => handlePlace({
+                          id: d.category,
+                          type: 'door',
+                          category: d.category,
+                          name: d.name,
+                          tag: d.tag,
+                          defaultWidthMm: d.defaultWidthMm,
+                          defaultHeightMm: d.defaultHeightMm,
+                        })}
+                        className="px-2 py-0.5 text-[10px] font-semibold bg-sky-600 hover:bg-sky-500 text-white rounded transition cursor-pointer"
+                      >
+                        Place in 3D
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -243,11 +310,10 @@ export const ElementsCatalogDrawer: React.FC<ElementsCatalogDrawerProps> = ({
                   <div
                     key={d.category}
                     data-testid={`catalog-item-${d.category}`}
-                    onClick={() => handleItemClick({ type: 'door', tag: d.tag, category: d.category, width: d.defaultWidthMm, height: d.defaultHeightMm })}
-                    className={`p-2.5 rounded-lg border transition cursor-pointer ${
+                    className={`p-2.5 rounded-lg border transition ${
                       selectedTag === d.tag
                         ? 'border-sky-500 bg-sky-50/50 shadow-xs'
-                        : 'border-[#E2DDD5] bg-white hover:border-slate-400 hover:bg-slate-50/50'
+                        : 'border-[#E2DDD5] bg-white hover:border-slate-400'
                     }`}
                   >
                     <div className="flex items-center justify-between">
@@ -264,6 +330,24 @@ export const ElementsCatalogDrawer: React.FC<ElementsCatalogDrawerProps> = ({
                     <p className="text-[10px] text-slate-400 mt-1 leading-tight line-clamp-2">
                       {d.description}
                     </p>
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        data-testid={`place-catalog-item-${d.category}`}
+                        onClick={() => handlePlace({
+                          id: d.category,
+                          type: 'door',
+                          category: d.category,
+                          name: d.name,
+                          tag: d.tag,
+                          defaultWidthMm: d.defaultWidthMm,
+                          defaultHeightMm: d.defaultHeightMm,
+                        })}
+                        className="px-2 py-0.5 text-[10px] font-semibold bg-amber-600 hover:bg-amber-500 text-white rounded transition cursor-pointer"
+                      >
+                        Place in 3D
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -282,11 +366,10 @@ export const ElementsCatalogDrawer: React.FC<ElementsCatalogDrawerProps> = ({
                   <div
                     key={w.category}
                     data-testid={`catalog-item-${w.category}`}
-                    onClick={() => handleItemClick({ type: 'window', tag: w.tag, category: w.category, width: w.defaultWidthMm, height: w.defaultHeightMm })}
-                    className={`p-2.5 rounded-lg border transition cursor-pointer ${
+                    className={`p-2.5 rounded-lg border transition ${
                       selectedTag === w.tag
                         ? 'border-sky-500 bg-sky-50/50 shadow-xs'
-                        : 'border-[#E2DDD5] bg-white hover:border-slate-400 hover:bg-slate-50/50'
+                        : 'border-[#E2DDD5] bg-white hover:border-slate-400'
                     }`}
                   >
                     <div className="flex items-center justify-between">
@@ -303,6 +386,24 @@ export const ElementsCatalogDrawer: React.FC<ElementsCatalogDrawerProps> = ({
                     <p className="text-[10px] text-slate-400 mt-1 leading-tight line-clamp-2">
                       {w.description}
                     </p>
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        data-testid={`place-catalog-item-${w.category}`}
+                        onClick={() => handlePlace({
+                          id: w.category,
+                          type: 'window',
+                          category: w.category,
+                          name: w.name,
+                          tag: w.tag,
+                          defaultWidthMm: w.defaultWidthMm,
+                          defaultHeightMm: w.defaultHeightMm,
+                        })}
+                        className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded transition cursor-pointer"
+                      >
+                        Place in 3D
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -321,11 +422,10 @@ export const ElementsCatalogDrawer: React.FC<ElementsCatalogDrawerProps> = ({
                   <div
                     key={s.id}
                     data-testid={`catalog-item-${s.id}`}
-                    onClick={() => handleItemClick({ type: 'stair', tag: s.tag, category: s.category, width: s.defaultWidthMm, height: s.defaultLengthMm })}
-                    className={`p-2.5 rounded-lg border transition cursor-pointer ${
+                    className={`p-2.5 rounded-lg border transition ${
                       selectedTag === s.tag
                         ? 'border-sky-500 bg-sky-50/50 shadow-xs'
-                        : 'border-[#E2DDD5] bg-white hover:border-slate-400 hover:bg-slate-50/50'
+                        : 'border-[#E2DDD5] bg-white hover:border-slate-400'
                     }`}
                   >
                     <div className="flex items-center justify-between">
@@ -342,22 +442,147 @@ export const ElementsCatalogDrawer: React.FC<ElementsCatalogDrawerProps> = ({
                     <p className="text-[10px] text-slate-400 mt-1 leading-tight line-clamp-2">
                       {s.description}
                     </p>
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        data-testid={`place-catalog-item-${s.id}`}
+                        onClick={() => handlePlace({
+                          id: s.id,
+                          type: 'stair',
+                          category: s.category,
+                          name: s.name,
+                          tag: s.tag,
+                          defaultWidthMm: s.defaultWidthMm,
+                          defaultHeightMm: s.defaultLengthMm,
+                        })}
+                        className="px-2 py-0.5 text-[10px] font-semibold bg-purple-600 hover:bg-purple-500 text-white rounded transition cursor-pointer"
+                      >
+                        Place in 3D
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Interiors B2 Section */}
-          {(activeTab === 'all' || activeTab === 'interiors_b2') && (
-            <div className="p-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 text-center space-y-2">
-              <div className="inline-flex p-2 rounded-full bg-slate-200 text-slate-600">
-                <Sparkles className="h-4 w-4" />
+          {/* Interiors Section */}
+          {(activeTab === 'all' || activeTab === 'interiors' || activeTab === 'interiors_b2') && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                <Sofa className="h-3.5 w-3.5 text-indigo-600" />
+                <span>Interiors & Furniture ({interiorItems.length})</span>
               </div>
-              <div className="text-[11px] font-bold text-slate-700">Stage B2 Interior Furnishings</div>
-              <p className="text-[10px] text-slate-500 leading-tight">
-                Living suites, beds, wardrobes, dining sets, and modular kitchen casework will populate here in Stage B2.
-              </p>
+              <div className="space-y-2">
+                {interiorItems.filter(i => matchesSearch(i.label) || matchesSearch(i.tag)).map((item) => (
+                  <div
+                    key={item.id}
+                    data-testid={`catalog-item-${item.id}`}
+                    className={`p-2.5 rounded-lg border transition ${
+                      selectedTag === item.tag
+                        ? 'border-indigo-500 bg-indigo-50/50 shadow-xs'
+                        : 'border-[#E2DDD5] bg-white hover:border-slate-400'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-800 text-[11px]">{item.label}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-100 text-indigo-800">
+                        {item.tag}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-1 flex items-center gap-2">
+                      <span>{item.defaultWidthMm} × {item.defaultDepthMm} × {item.defaultHeightMm} mm</span>
+                      <span>·</span>
+                      <span className="capitalize">{item.category}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1 leading-tight line-clamp-2">
+                      {item.description}
+                    </p>
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        data-testid={`place-catalog-item-${item.id}`}
+                        onClick={() => handlePlace({
+                          id: item.id,
+                          type: 'interior',
+                          category: item.category,
+                          kind: item.kind,
+                          name: item.label,
+                          tag: item.tag,
+                          defaultWidthMm: item.defaultWidthMm,
+                          defaultHeightMm: item.defaultHeightMm,
+                          defaultDepthMm: item.defaultDepthMm,
+                          mountType: item.mountType,
+                          categoryType: item.category,
+                        })}
+                        className="px-2 py-0.5 text-[10px] font-semibold bg-indigo-600 hover:bg-indigo-500 text-white rounded transition cursor-pointer"
+                      >
+                        Place in 3D
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Lighting & Fans Section */}
+          {(activeTab === 'all' || activeTab === 'lighting') && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                <Fan className="h-3.5 w-3.5 text-amber-500" />
+                <span>Lighting & Ceiling Fans ({lightingItems.length})</span>
+              </div>
+              <div className="space-y-2">
+                {lightingItems.filter(i => matchesSearch(i.label) || matchesSearch(i.tag)).map((item) => (
+                  <div
+                    key={item.id}
+                    data-testid={`catalog-item-${item.id}`}
+                    className={`p-2.5 rounded-lg border transition ${
+                      selectedTag === item.tag
+                        ? 'border-amber-500 bg-amber-50/50 shadow-xs'
+                        : 'border-[#E2DDD5] bg-white hover:border-slate-400'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-800 text-[11px]">{item.label}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-100 text-amber-800">
+                        {item.tag}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-1 flex items-center gap-2">
+                      <span>{item.defaultWidthMm} × {item.defaultDepthMm} mm</span>
+                      <span>·</span>
+                      <span className="capitalize">{item.mountType} Mount</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1 leading-tight line-clamp-2">
+                      {item.description}
+                    </p>
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        data-testid={`place-catalog-item-${item.id}`}
+                        onClick={() => handlePlace({
+                          id: item.id,
+                          type: 'interior',
+                          category: item.category,
+                          kind: item.kind,
+                          name: item.label,
+                          tag: item.tag,
+                          defaultWidthMm: item.defaultWidthMm,
+                          defaultHeightMm: item.defaultHeightMm,
+                          defaultDepthMm: item.defaultDepthMm,
+                          mountType: item.mountType,
+                          categoryType: item.category,
+                        })}
+                        className="px-2 py-0.5 text-[10px] font-semibold bg-amber-600 hover:bg-amber-500 text-white rounded transition cursor-pointer"
+                      >
+                        Place in 3D
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -365,7 +590,7 @@ export const ElementsCatalogDrawer: React.FC<ElementsCatalogDrawerProps> = ({
         {/* Footer */}
         <div className="p-3 border-t border-[#E2DDD5] bg-[#F7F5F0] flex items-center justify-between">
           <span className="text-[10px] text-slate-500">
-            {selectedTag ? `Selected: ${selectedTag}` : 'Click an item to inspect'}
+            {selectedTag ? `Selected: ${selectedTag}` : 'Click "Place in 3D" to insert into scene'}
           </span>
           <button
             type="button"

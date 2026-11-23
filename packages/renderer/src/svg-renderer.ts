@@ -1000,6 +1000,25 @@ function renderDimensionLine(
   return lines.join('\n');
 }
 
+const FURNITURE_KIND_MAP: Record<string, string> = {
+  sofa_3seater: 'sofa',
+  sofa_l_shape: 'l_sofa',
+  coffee_table: 'coffee_table',
+  tv_unit: 'tv_console',
+  bed_king: 'bed',
+  bed_queen: 'bed',
+  nightstand: 'nightstand',
+  wardrobe_sliding: 'wardrobe',
+  dining_table_6s: 'table',
+  kitchen_counter_cooktop: 'stove',
+  kitchen_sink_counter: 'sink',
+  water_closet: 'toilet',
+  wash_basin_vanity: 'sink',
+  shower_enclosure: 'shower',
+  ceiling_fan_modern: 'ceiling_fan',
+  downlight_recessed: 'downlight',
+};
+
 /**
  * Renders authentic Plancraft CAD furniture items on layer A-FURN.
  */
@@ -1014,25 +1033,37 @@ function renderPlancraftFurniture(floor: Floor, transform: ViewTransform): strin
   for (const item of items) {
     const room = floor.rooms.find(r => r.id === item.roomId);
     if (room && /utility|balcony/i.test(`${room.type} ${room.name}`) && ['stove', 'oven'].includes(item.type)) continue;
-    const symbol = PLANCRAFT_SVG_SYMBOLS[item.type];
+
+    const itemKind = (item as any).kind ?? item.type;
+    const lookupKey = FURNITURE_KIND_MAP[itemKind] ?? FURNITURE_KIND_MAP[item.type] ?? itemKind ?? item.type;
+    const symbol = PLANCRAFT_SVG_SYMBOLS[lookupKey] ?? PLANCRAFT_SVG_SYMBOLS[item.type];
     if (!symbol) continue;
 
-    const cx = item.xMm + item.widthMm / 2;
-    const cy = item.yMm + item.depthMm / 2;
+    const posX = item.xMm ?? (item as any).positionMm?.x ?? 0;
+    const posY = item.yMm ?? (item as any).positionMm?.y ?? 0;
+    const itemW = item.widthMm ?? (item as any).dimensionsMm?.width ?? 1000;
+    const itemD = item.depthMm ?? (item as any).dimensionsMm?.depth ?? 800;
+
+    const cx = posX + itemW / 2;
+    const cy = posY + itemD / 2;
     const sCenter = worldToScreen({ x: cx, y: cy }, transform);
 
-    const isOrthogonal = item.rotationDeg === 90 || item.rotationDeg === 270;
-    const baseW = isOrthogonal ? item.depthMm : item.widthMm;
-    const baseD = isOrthogonal ? item.widthMm : item.depthMm;
+    const rot = item.rotationDeg ?? 0;
+    const isOrthogonal = rot === 90 || rot === 270;
+    const baseW = isOrthogonal ? itemD : itemW;
+    const baseD = isOrthogonal ? itemW : itemD;
 
     const sx = scaleToScreen(baseW, transform) / symbol.viewBoxWidth;
     const sy = scaleToScreen(baseD, transform) / symbol.viewBoxHeight;
 
-    const tr = `translate(${sCenter.x.toFixed(2)} ${sCenter.y.toFixed(2)}) rotate(${item.rotationDeg}) scale(${sx.toFixed(5)} ${sy.toFixed(5)}) translate(${(-symbol.viewBoxWidth / 2).toFixed(2)} ${(-symbol.viewBoxHeight / 2).toFixed(2)})`;
+    const isCeiling = (item as any).mountType === 'ceiling';
+    const opacity = isCeiling ? 0.75 : 0.85;
+
+    const tr = `translate(${sCenter.x.toFixed(2)} ${sCenter.y.toFixed(2)}) rotate(${rot}) scale(${sx.toFixed(5)} ${sy.toFixed(5)}) translate(${(-symbol.viewBoxWidth / 2).toFixed(2)} ${(-symbol.viewBoxHeight / 2).toFixed(2)})`;
 
     elements.push(
-      `<g class="cad-furniture-item" data-entity-type="furniture" data-furniture-id="${escapeXml(item.id)}" data-entity-id="${escapeXml(item.id)}" data-furniture-type="${escapeXml(item.type)}" transform="${tr}" opacity="0.85" pointer-events="visiblePainted">` +
-      `<title>${escapeXml(item.type)} (${item.widthMm} × ${item.depthMm} mm)</title>` +
+      `<g class="cad-furniture-item ${isCeiling ? 'cad-ceiling-element' : ''}" data-entity-type="${isCeiling ? 'ceiling_element' : 'furniture'}" data-furniture-id="${escapeXml(item.id)}" data-entity-id="${escapeXml(item.id)}" data-furniture-type="${escapeXml(itemKind)}" transform="${tr}" opacity="${opacity}" pointer-events="visiblePainted">` +
+      `<title>${escapeXml((item as any).label ?? itemKind)} (${itemW} × ${itemD} mm)</title>` +
       symbol.inner +
       `</g>`,
     );

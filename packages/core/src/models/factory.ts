@@ -29,6 +29,9 @@ import type {
   Polygon,
   CanonicalFurnitureItem,
   PlancraftFurnitureElementType,
+  InteriorCategory,
+  MountType,
+  InteriorItemKind,
 } from '../types';
 
 import {
@@ -146,16 +149,27 @@ export interface CreateFloorParams {
 
 export interface CreateFurnitureItemParams {
   id?: string;
-  type: PlancraftFurnitureElementType;
+  type?: PlancraftFurnitureElementType;
   roomId: string;
+  floorId?: string;
+  category?: InteriorCategory;
+  kind?: InteriorItemKind | string;
+  label?: string;
+  mountType?: MountType;
+  positionMm?: { x: number; y: number; z: number };
+  dimensionsMm?: { width: number; depth: number; height: number };
   siteZoneId?: string;
   flatId?: string;
-  xMm: number;
-  yMm: number;
-  widthMm: number;
-  depthMm: number;
-  rotationDeg?: 0 | 90 | 180 | 270;
+  xMm?: number;
+  yMm?: number;
+  widthMm?: number;
+  depthMm?: number;
+  heightMm?: number;
+  elevationMm?: number;
+  rotationDeg?: number;
   anchorWall?: 'NORTH' | 'SOUTH' | 'EAST' | 'WEST' | 'CENTER';
+  color?: string;
+  locked?: boolean;
 }
 
 export interface CreateRoomParams {
@@ -487,23 +501,60 @@ export function createColumn(params: CreateColumnParams): Column {
 
 /** Create a new CanonicalFurnitureItem on layer A-FURN. */
 export function createFurnitureItem(params: CreateFurnitureItemParams): CanonicalFurnitureItem {
-  assertFinite('xMm', params.xMm);
-  assertFinite('yMm', params.yMm);
-  assertPositive('widthMm', params.widthMm);
-  assertPositive('depthMm', params.depthMm);
+  const x = params.xMm ?? params.positionMm?.x ?? 0;
+  const y = params.yMm ?? params.positionMm?.y ?? 0;
+  const w = params.widthMm ?? params.dimensionsMm?.width ?? 1000;
+  const d = params.depthMm ?? params.dimensionsMm?.depth ?? 800;
+  const h = params.heightMm ?? params.dimensionsMm?.height ?? 800;
+  const z = params.elevationMm ?? params.positionMm?.z ?? 0;
+  assertFinite('xMm', x);
+  assertFinite('yMm', y);
+  assertPositive('widthMm', w);
+  assertPositive('depthMm', d);
 
   return {
     id: params.id ?? generateId(),
-    type: params.type,
+    type: params.type ?? ('furniture' as PlancraftFurnitureElementType),
     roomId: params.roomId,
+    floorId: params.floorId,
+    category: params.category ?? 'furniture',
+    kind: params.kind,
+    label: params.label ?? (params.kind ? String(params.kind).replace(/_/g, ' ') : 'Furniture Item'),
+    mountType: params.mountType ?? 'floor',
+    positionMm: { x, y, z },
+    dimensionsMm: { width: w, depth: d, height: h },
     siteZoneId: params.siteZoneId,
     flatId: params.flatId,
-    xMm: params.xMm,
-    yMm: params.yMm,
-    widthMm: params.widthMm,
-    depthMm: params.depthMm,
+    xMm: x,
+    yMm: y,
+    widthMm: w,
+    depthMm: d,
+    heightMm: h,
+    elevationMm: z,
     rotationDeg: params.rotationDeg ?? 0,
     anchorWall: params.anchorWall,
     layer: 'A-FURN',
+    color: params.color,
+    locked: params.locked ?? false,
+  };
+}
+
+/** Add a furniture or lighting item to a specific floor in the building. */
+export function addFurnitureItem(
+  building: Building,
+  floorId: string,
+  params: CreateFurnitureItemParams,
+): Building {
+  const item = createFurnitureItem({ ...params, floorId });
+  return {
+    ...building,
+    floors: building.floors.map((f) => {
+      if (f.id !== floorId) return f;
+      const existing = f.furniture ?? [];
+      return {
+        ...f,
+        furniture: [...existing, item],
+      };
+    }),
   };
 }

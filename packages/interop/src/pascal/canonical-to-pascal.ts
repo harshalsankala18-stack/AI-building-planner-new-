@@ -1,6 +1,7 @@
 import {
   type Building,
   type Point,
+  type CanonicalFurnitureItem,
   DoorType,
   WindowType,
   SwingDirection,
@@ -19,6 +20,8 @@ import {
   ZoneNode,
   StairNode,
   StairSegmentNode,
+  CeilingNode,
+  ItemNode,
 } from '@pascal-app/core';
 import { synthesizeFloorWalls, type SynthesizedWall } from './wall-synthesizer.js';
 
@@ -41,7 +44,20 @@ export interface CanonicalToPascalOptions {
  * (e.g. 'site_1', 'building_main', 'level_0', 'wall_ext_1', 'stair_core_1', 'sseg_fl1')
  */
 export function toPascalId(
-  prefix: 'site' | 'building' | 'level' | 'slab' | 'wall' | 'door' | 'window' | 'zone' | 'column' | 'stair' | 'sseg',
+  prefix:
+    | 'site'
+    | 'building'
+    | 'level'
+    | 'slab'
+    | 'wall'
+    | 'door'
+    | 'window'
+    | 'zone'
+    | 'column'
+    | 'stair'
+    | 'sseg'
+    | 'ceiling'
+    | 'item',
   rawId: string,
 ): string {
   const sanitized = rawId.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -566,6 +582,85 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
         nodes[stairId] = stairNode;
         levelChildren.push(stairId);
       }
+    }
+
+    // 2f. Interior Furniture & Lighting Items (ItemNode) + CeilingNode (§Stage B2)
+    const ceilingId = toPascalId('ceiling', `${floor.id}_clg`);
+    const ceilingChildren: string[] = [];
+
+    const floorFurniture: readonly CanonicalFurnitureItem[] = floor.furniture ?? [];
+    for (const item of floorFurniture) {
+      const itemId = toPascalId('item', item.id);
+      const isCeiling = item.mountType === 'ceiling';
+      const xM = safeNum(item.xMm, item.positionMm?.x ?? 0) / 1000;
+      const yM = safeNum(item.yMm, item.positionMm?.y ?? 0) / 1000;
+      const defaultElev = isCeiling ? Math.max(2200, (floor.floorHeight ?? 3000) - (item.heightMm ?? 320)) : 0;
+      const elevationM = safeNum(item.elevationMm, item.positionMm?.z ?? defaultElev) / 1000;
+      const wM = safeNum(item.widthMm, item.dimensionsMm?.width ?? 1000) / 1000;
+      const dM = safeNum(item.depthMm, item.dimensionsMm?.depth ?? 800) / 1000;
+      const hM = safeNum(item.heightMm, item.dimensionsMm?.height ?? 800) / 1000;
+      const rotRad = ((safeNum(item.rotationDeg, 0) * Math.PI) / 180);
+
+      const parentId = isCeiling ? ceilingId : levelId;
+
+      const itemNode = ItemNode.parse({
+        id: itemId,
+        name: item.label ?? (item.kind ? String(item.kind).replace(/_/g, ' ') : 'Interior Element'),
+        parentId,
+        position: [xM, elevationM, yM],
+        rotation: [0, rotRad, 0],
+        scale: [1, 1, 1],
+        asset: {
+          id: item.kind ?? 'item',
+          category: item.category ?? 'furniture',
+          name: item.label ?? 'Item',
+          thumbnail: '',
+          src: `asset://library/${item.kind ?? 'item'}`,
+          dimensions: [wM, hM, dM],
+          attachTo: isCeiling ? 'ceiling' : item.mountType === 'wall' ? 'wall' : undefined,
+          source: 'library',
+        },
+        children: [],
+        metadata: {
+          canonicalItemId: item.id,
+          canonicalRoomId: item.roomId,
+          kind: item.kind,
+          category: item.category,
+          mountType: item.mountType,
+          rotationDeg: item.rotationDeg,
+          elevationMm: item.elevationMm,
+          locked: item.locked,
+        },
+      });
+
+      nodes[itemId] = itemNode;
+      if (isCeiling) {
+        ceilingChildren.push(itemId);
+      } else {
+        levelChildren.push(itemId);
+      }
+    }
+
+    if (slabPoints.length >= 3) {
+      const ceilingPolygon: [number, number][] = slabPoints.map((p) => [p[0], p[1]]);
+      const ceilingHoles: [number, number][][] = slabHoles.map((h) => h.map((p) => [p[0], p[1]]));
+
+      const ceilingNode = CeilingNode.parse({
+        id: ceilingId,
+        name: `${floor.name} Ceiling`,
+        parentId: levelId,
+        polygon: ceilingPolygon,
+        holes: ceilingHoles,
+        height: floorHeightM,
+        children: ceilingChildren,
+        metadata: {
+          floorId: floor.id,
+          level: floor.level,
+        },
+      });
+
+      nodes[ceilingId] = ceilingNode;
+      levelChildren.push(ceilingId);
     }
 
     // 2g. Level Node Creation

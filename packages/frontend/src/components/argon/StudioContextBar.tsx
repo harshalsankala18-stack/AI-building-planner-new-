@@ -59,6 +59,12 @@ export interface StudioContextBarProps {
   splitLeftMode?: 'engineering' | 'archlang';
   onSelectSplitLeftMode?: (mode: 'engineering' | 'archlang') => void;
   onResetSplit5050?: () => void;
+
+  // Stage B2 Parametric Ripple props
+  autoSolveStructure?: boolean;
+  onToggleAutoSolveStructure?: () => void;
+  onUndoParametric?: () => void;
+  canUndoParametric?: boolean;
 }
 
 const DISCIPLINES = [
@@ -116,6 +122,12 @@ export const StudioContextBar: React.FC<StudioContextBarProps> = ({
   splitLeftMode = 'engineering',
   onSelectSplitLeftMode,
   onResetSplit5050,
+
+  // Stage B2 Parametric Ripple
+  autoSolveStructure = true,
+  onToggleAutoSolveStructure,
+  onUndoParametric,
+  canUndoParametric = true,
 }) => {
   if (activeTab === 'export') {
     return (
@@ -455,6 +467,40 @@ export const StudioContextBar: React.FC<StudioContextBarProps> = ({
               </button>
             )}
           </>
+        )}
+
+        {/* 5. Parametric Auto-Solve & Undo Controls (§Stage B2) */}
+        {onToggleAutoSolveStructure && (
+          <div className="flex items-center gap-1.5 pl-2 border-l border-[#E2DDD5]">
+            <button
+              type="button"
+              data-testid="toggle-auto-solve-structure-btn"
+              onClick={onToggleAutoSolveStructure}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold border transition ${
+                autoSolveStructure
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-800 font-bold shadow-2xs'
+                  : 'border-[#E2DDD5] bg-[#F7F5F0] text-[#5C6672] hover:text-[#181D23]'
+              }`}
+              title="Parametric Ripple: Automatically re-align structural columns, re-project openings, and re-fit interiors when resizing rooms"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
+              <span>Auto-Solve Structure</span>
+            </button>
+
+            {onUndoParametric && (
+              <button
+                type="button"
+                data-testid="parametric-undo-btn"
+                onClick={onUndoParametric}
+                disabled={canUndoParametric === false}
+                className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold border border-[#E2DDD5] bg-[#F7F5F0] hover:bg-[#FFFFFF] text-[#181D23] disabled:opacity-40 transition cursor-pointer"
+                title="Undo Parametric Change (Ctrl+Z)"
+              >
+                <RotateCcw className="h-3.5 w-3.5 text-[#5C6672]" />
+                <span>Undo</span>
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

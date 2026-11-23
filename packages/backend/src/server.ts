@@ -19,6 +19,7 @@ import { handleExportRoute } from './api/export-routes.js';
 import { handlePascalSceneRoute } from './api/pascal-scene-routes.js';
 import { handleArchLangRoute } from './api/archlang-routes.js';
 import { handleAiEditRoute } from './api/ai-edit-routes.js';
+import { handleParametricRoute } from './api/parametric-routes.js';
 import { handleJobRoutes } from './api/job-routes.js';
 import { handleAuthRoute } from './api/auth-routes.js';
 import { handleProjectListRoute } from './api/project-routes.js';
@@ -425,6 +426,8 @@ async function route(request: IncomingMessage, response: ServerResponse, deps: S
     if (await handleArchLangRoute(request, response, url, readBodyForRoute, sendJson, CORS_HEADERS)) return;
 
     if (await handleAiEditRoute(request, response, url, readBodyForRoute, sendJson, CORS_HEADERS, { ...deps, repository, storage })) return;
+
+    if (await handleParametricRoute(request, response, url, readBodyForRoute, sendJson, CORS_HEADERS, { repository })) return;
 
     if (await handleJobRoutes(request, response, url, readBodyForRoute, sendJson, CORS_HEADERS, {
       jobQueue,

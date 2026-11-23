@@ -1,6 +1,11 @@
-import type { Building, Room, Wall, Door, Window, Stair } from '@ai-floor-planner/core';
+import type { Building, Room, Wall, Door, Window, Stair, CanonicalFurnitureItem } from '@ai-floor-planner/core';
 import { WallType, DoorType, WindowType, RoomType, SwingDirection, StairType, Direction } from '@ai-floor-planner/core';
 import type { PascalScene } from './canonical-to-pascal';
+
+function safeNum(val: unknown, fallback = 0): number {
+  const n = typeof val === 'number' ? val : Number(val);
+  return Number.isFinite(n) ? n : fallback;
+}
 
 /**
  * Extracts raw ID from a Pascal prefixed identifier.
@@ -293,6 +298,69 @@ export function pascalToCanonicalPatch(
       }
 
       floor.rooms = updatedRooms;
+    }
+
+    // 4. Extract Furniture & Interior Lighting Items (ItemNode) (§Stage B2)
+    const ceilingNodes = Object.values(nodes).filter(
+      (n: any) => (n.type === 'ceiling' || n.id?.startsWith('ceiling_')) && n.parentId === levelNode.id,
+    ) as any[];
+    const ceilingIds = new Set(ceilingNodes.map((c) => c.id));
+
+    const itemNodes = Object.values(nodes).filter(
+      (n: any) =>
+        (n.type === 'item' || n.id?.startsWith('item_')) &&
+        (n.parentId === levelNode.id || ceilingIds.has(n.parentId)),
+    ) as any[];
+
+    if (itemNodes.length > 0) {
+      const updatedFurniture: CanonicalFurnitureItem[] = [];
+
+      for (const inItem of itemNodes) {
+        const rawItemId = fromPascalId(inItem.id, 'item');
+        const existingItem = floor.furniture?.find(
+          (f: any) => f.id === rawItemId || f.id === inItem.metadata?.canonicalItemId,
+        );
+
+        const isCeiling =
+          inItem.metadata?.mountType === 'ceiling' ||
+          ceilingIds.has(inItem.parentId) ||
+          inItem.asset?.attachTo === 'ceiling';
+        const posX = Math.round(safeNum(inItem.position?.[0], 0) * 1000);
+        const elevationY = Math.round(safeNum(inItem.position?.[1], isCeiling ? 2680 : 0) * 1000);
+        const posY = Math.round(safeNum(inItem.position?.[2], 0) * 1000);
+
+        const assetDim = inItem.asset?.dimensions ?? [1, 0.8, 0.8];
+        const widthMm = Math.round(safeNum(assetDim[0], 1) * 1000);
+        const heightMm = Math.round(safeNum(assetDim[1], 0.8) * 1000);
+        const depthMm = Math.round(safeNum(assetDim[2], 0.8) * 1000);
+
+        const yawRad = inItem.rotation?.[1] ?? 0;
+        const rotationDeg = Math.round((yawRad * 180) / Math.PI);
+
+        updatedFurniture.push({
+          id: existingItem?.id || inItem.metadata?.canonicalItemId || rawItemId,
+          type: existingItem?.type ?? 'table',
+          roomId: inItem.metadata?.canonicalRoomId || existingItem?.roomId || '',
+          floorId: floor.id,
+          category: inItem.metadata?.category || inItem.asset?.category || 'furniture',
+          kind: inItem.metadata?.kind || inItem.asset?.id || 'misc',
+          label: inItem.name || inItem.asset?.name || existingItem?.label || 'Interior Element',
+          mountType: isCeiling ? 'ceiling' : (inItem.asset?.attachTo === 'wall' ? 'wall' : 'floor'),
+          positionMm: { x: posX, y: posY, z: elevationY },
+          dimensionsMm: { width: widthMm, depth: depthMm, height: heightMm },
+          xMm: posX,
+          yMm: posY,
+          widthMm,
+          depthMm,
+          heightMm,
+          elevationMm: elevationY,
+          rotationDeg,
+          layer: 'A-FURN',
+          locked: inItem.metadata?.locked ?? existingItem?.locked ?? false,
+        });
+      }
+
+      floor.furniture = updatedFurniture;
     }
   }
 

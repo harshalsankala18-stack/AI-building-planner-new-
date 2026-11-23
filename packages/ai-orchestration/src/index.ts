@@ -281,5 +281,20 @@ export {
   solveBuildingStructuralGrid,
 } from './apartment/structural-grid-solver';
 export {
+  synthesizeFloorInteriors,
+  synthesizeBasicInteriors,
+} from './apartment/interior-furnishing-engine';
+export {
   synthesizeCanonicalBuilding,
 } from './apartment/canonical-synthesizer';
+export {
+  resolveParametricRipple,
+  pushProjectRevision,
+  popProjectRevision,
+  clearProjectRevisions,
+  MIN_ROOM_DIMENSIONS_MM,
+  type ParametricChangeType,
+  type ParametricChangeEvent,
+  type ParametricRippleOptions,
+  type ParametricRippleResult,
+} from './parametric/parametric-ripple-solver';

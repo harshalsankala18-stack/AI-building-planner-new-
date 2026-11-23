@@ -185,4 +185,42 @@ export const PLANCRAFT_SVG_SYMBOLS: Record<string, PlancraftSymbolDefinition> = 
     viewBoxHeight: 100,
     inner: "<!-- Board body -->\n  <rect x=\"0\" y=\"0\" width=\"1800\" height=\"100\" fill=\"#f0f0f0\" stroke=\"black\" stroke-width=\"6\"/>\n  <!-- Frame -->\n  <rect x=\"5\" y=\"5\" width=\"1790\" height=\"90\" fill=\"none\" stroke=\"#a0a0a0\" stroke-width=\"3\"/>\n  <!-- Tray -->\n  <rect x=\"200\" y=\"80\" width=\"1400\" height=\"20\" fill=\"#d0d0d0\" stroke=\"black\" stroke-width=\"3\"/>",
   },
+  "ceiling_fan": {
+    viewBox: "0 0 1200 1200",
+    viewBoxWidth: 1200,
+    viewBoxHeight: 1200,
+    inner: `<!-- Outer swept circle -->
+  <circle cx="600" cy="600" r="580" fill="none" stroke="#94a3b8" stroke-width="6" stroke-dasharray="24,16"/>
+  <!-- 3 Blades -->
+  <g stroke="#475569" stroke-width="8" fill="#e2e8f0">
+    <path d="M 570 480 C 560 300 540 100 600 60 C 660 100 640 300 630 480 Z" />
+    <path d="M 570 480 C 560 300 540 100 600 60 C 660 100 640 300 630 480 Z" transform="rotate(120 600 600)"/>
+    <path d="M 570 480 C 560 300 540 100 600 60 C 660 100 640 300 630 480 Z" transform="rotate(240 600 600)"/>
+  </g>
+  <!-- Motor hub -->
+  <circle cx="600" cy="600" r="140" fill="#cbd5e1" stroke="#334155" stroke-width="10"/>
+  <circle cx="600" cy="600" r="50" fill="#64748b" stroke="#0f172a" stroke-width="6"/>`,
+  },
+  "downlight": {
+    viewBox: "0 0 300 300",
+    viewBoxWidth: 300,
+    viewBoxHeight: 300,
+    inner: `<!-- Recessed luminaire housing -->
+  <circle cx="150" cy="150" r="130" fill="#fef9c3" stroke="#eab308" stroke-width="8"/>
+  <circle cx="150" cy="150" r="70" fill="#fef08a" stroke="#ca8a04" stroke-width="6"/>
+  <!-- Crosshairs -->
+  <line x1="150" y1="40" x2="150" y2="260" stroke="#ca8a04" stroke-width="6"/>
+  <line x1="40" y1="150" x2="260" y2="150" stroke="#ca8a04" stroke-width="6"/>`,
+  },
+  "nightstand": {
+    viewBox: "0 0 500 450",
+    viewBoxWidth: 500,
+    viewBoxHeight: 450,
+    inner: `<!-- Table top -->
+  <rect x="0" y="0" width="500" height="450" rx="20" fill="#e8e8e8" stroke="black" stroke-width="8"/>
+  <!-- Drawer outline -->
+  <rect x="40" y="50" width="420" height="350" rx="10" fill="#f0f0f0" stroke="black" stroke-width="5"/>
+  <!-- Drawer handle -->
+  <line x1="200" y1="225" x2="300" y2="225" stroke="black" stroke-width="8" stroke-linecap="round"/>`,
+  },
 };

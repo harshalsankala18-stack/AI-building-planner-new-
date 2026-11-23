@@ -65,6 +65,9 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
   const [splitLeftMode, setSplitLeftMode] = useState<'engineering' | 'archlang'>('engineering');
   const [splitRatio, setSplitRatio] = useState<number>(50); // percentage
 
+  // Stage B2 Parametric Ripple Auto-Solve state
+  const [autoSolveStructure, setAutoSolveStructure] = useState(true);
+
   // Planning worker & generation states
   const workerRef = useRef<Worker | null>(null);
   const lastBrief = useRef<ProjectSetupWizardData | null>(null);
@@ -274,17 +277,43 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
     setIsGenerating(false);
   };
 
-  // Keyboard shortcut listener for Command Palette (⌘K / Ctrl+K)
+  const handleParametricUndo = async () => {
+    try {
+      const pId = editor.building?.id || 'proj-1';
+      const res = await fetch(`/api/projects/${encodeURIComponent(pId)}/parametric-undo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (res.ok) {
+        const data = await res.json() as any;
+        if (data.building) {
+          editor.setBuilding(data.building);
+          showToast('Undone: reverted to previous structural revision.');
+          setSync3dCount(c => c + 1);
+        }
+      } else {
+        showToast('No more undo steps available.');
+      }
+    } catch (err) {
+      console.warn('Parametric undo request failed:', err);
+    }
+  };
+
+  // Keyboard shortcut listener for Command Palette (⌘K / Ctrl+K) & Undo (Ctrl+Z)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setIsCommandPaletteOpen((prev) => !prev);
       }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleParametricUndo();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [editor.building?.id]);
 
   return (
     <div className="argon-shell flex flex-col h-screen w-screen bg-[#F7F5F0] text-[#181D23] overflow-hidden font-sans relative">
@@ -367,6 +396,12 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
           splitLeftMode={splitLeftMode}
           onSelectSplitLeftMode={setSplitLeftMode}
           onResetSplit5050={() => setSplitRatio(50)}
+
+          // Stage B2 Parametric Ripple
+          autoSolveStructure={autoSolveStructure}
+          onToggleAutoSolveStructure={() => setAutoSolveStructure((prev) => !prev)}
+          onUndoParametric={handleParametricUndo}
+          canUndoParametric={true}
         />
       )}
 

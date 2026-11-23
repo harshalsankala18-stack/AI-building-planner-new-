@@ -9,6 +9,7 @@
 import type { Building } from '@ai-floor-planner/core';
 import { synthesizeBuildingOpenings } from './opening-synthesizer.js';
 import { solveBuildingStructuralGrid } from './structural-grid-solver.js';
+import { synthesizeBasicInteriors } from './interior-furnishing-engine.js';
 
 export function synthesizeCanonicalBuilding(building: Building): Building {
   if (!building || !building.floors || building.floors.length === 0) {
@@ -19,7 +20,10 @@ export function synthesizeCanonicalBuilding(building: Building): Building {
   const withOpenings = synthesizeBuildingOpenings(building);
 
   // 2. Synthesize structural column grid and multi-story stairs
-  const { building: fullySynthesized } = solveBuildingStructuralGrid(withOpenings);
+  const { building: withStructure } = solveBuildingStructuralGrid(withOpenings);
+
+  // 3. Synthesize collision-free basic house interiors & MEP ceiling fixtures (§Stage B2)
+  const fullySynthesized = synthesizeBasicInteriors(withStructure);
 
   return fullySynthesized;
 }
