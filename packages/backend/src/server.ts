@@ -20,6 +20,8 @@ import { handlePascalSceneRoute } from './api/pascal-scene-routes.js';
 import { handleArchLangRoute } from './api/archlang-routes.js';
 import { handleAiEditRoute } from './api/ai-edit-routes.js';
 import { handleJobRoutes } from './api/job-routes.js';
+import { handleAuthRoute } from './api/auth-routes.js';
+import { handleProjectListRoute } from './api/project-routes.js';
 import { createObjectStorageFromEnv, type ObjectStorageAdapter } from './storage/object-storage.js';
 import { createProjectRepositoryFromEnv, type ProjectRepository } from './persistence/project-repository.js';
 import { createJobQueueFromEnv, type JobQueueAdapter } from './jobs/job-queue.js';
@@ -411,6 +413,10 @@ async function route(request: IncomingMessage, response: ServerResponse, deps: S
           ? 20 * 1024 * 1024
           : 1 * 1024 * 1024
       );
+
+    if (await handleAuthRoute(request, response, url, readBodyForRoute, sendJson, CORS_HEADERS)) return;
+
+    if (await handleProjectListRoute(request, response, url, readBodyForRoute, sendJson, CORS_HEADERS, { repository })) return;
 
     if (await handleExportRoute(request, response, url, readBodyForRoute, sendJson, CORS_HEADERS)) return;
 

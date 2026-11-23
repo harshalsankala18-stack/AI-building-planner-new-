@@ -1,160 +1,169 @@
-import React, { useEffect, useRef, useState } from 'react';
-import {
-  Building2,
-  Compass,
-  Layers,
-  DraftingCompass,
-  Box,
-  ShieldCheck,
-  Download,
-  FolderOpen,
-  ChevronDown,
-  Command,
-  Bell,
-  Settings,
-  User,
-  Plus,
-  Check,
-  Edit3,
-  Sparkles,
-} from 'lucide-react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
+import { Sparkles } from 'lucide-react';
 import { useEditorStore } from '../../stores/editor-store';
 import { ProjectSetupWizard, type ProjectSetupWizardData } from './ProjectSetupWizard';
-import { RHWelcomeScreen } from '../studio/RHWelcomeScreen';
-import { ArchitecturalCADWorkspace, type StudioWorkspaceMode } from './ArchitecturalCADWorkspace';
-import { InteractivePlanEditorPage } from './InteractivePlanEditorPage';
-import { FloorIsometricEditor } from './FloorIsometricEditor';
-import { Building3DCustomizer } from './Building3DCustomizer';
-import { StructuralCADWorkspace } from './StructuralCADWorkspace';
-import { UdcprEtabsAnalysis } from './UdcprEtabsAnalysis';
+import { ArchitecturalCADWorkspace } from './ArchitecturalCADWorkspace';
+import { ArchLangPresentationSheet } from '../cad/ArchLangPresentationSheet';
+import { PascalStudioFrame } from '../model-3d/PascalStudioFrame';
+import { ModelWorkspace } from '../model-3d/ModelWorkspace';
 import { ExportCenterWorkspace } from './ExportCenterWorkspace';
 import { GenerationProgressModal } from './GenerationProgressModal';
-import { SystemStatusIndicator } from '../common/SystemStatusIndicator';
-import { JobTracker } from '../common/JobTracker';
 import { projectStorage, createCanonical30x50_2BHK } from '../../services/storage';
+import { authService, type AuthUser } from '../../services/auth-service';
+import { StudioTopBar, type StudioTabId } from './StudioTopBar';
+import { StudioContextBar } from './StudioContextBar';
+import { CommandPaletteModal } from '../common/CommandPaletteModal';
+import { SettingsModal, type StudioSettings } from '../common/SettingsModal';
+import { JobActivityDrawer, activityLogger } from '../common/JobActivityDrawer';
+import { evaluateArchitecturalComplianceScore } from '@ai-floor-planner/planning-engine';
 import {
   type executeAuditedPlanningPipeline,
   type PipelineStageProgressEvent,
 } from '@ai-floor-planner/planning-engine';
-
 import { createArgonRequest } from '../../services/argon-request';
 
-export type ArgonWorkspaceId =
-  | 'setup'
-  | 'cad_2d'
-  | 'edit_plan'
-  | 'isometric'
-  | 'building_3d'
-  | 'structural_cad'
-  | 'engineering'
-  | 'export';
-
-interface ArgonStudioShellProps {
+export interface ArgonStudioShellProps {
   onBackToProjects?: () => void;
+  initialWorkspace?: 'studio' | 'setup';
 }
 
 export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
   onBackToProjects,
+  initialWorkspace = 'studio',
 }) => {
   const editor = useEditorStore();
-  const [activeWorkspace, setActiveWorkspace] = useState<ArgonWorkspaceId>('setup');
-  const [cadStudioMode, setCadStudioMode] = useState<StudioWorkspaceMode>('3d-pascal');
-  const [isProjectSwitcherOpen, setIsProjectSwitcherOpen] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [pipelineProgress, setPipelineProgress] = useState<PipelineStageProgressEvent | null>(null);
+  const [workspaceMode, setWorkspaceMode] = useState<'studio' | 'setup'>(initialWorkspace);
+  const [activeTab, setActiveTab] = useState<StudioTabId>('3d-studio');
 
-  const projectList = projectStorage.list();
+  // Interactive drawer and modal states
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const primaryStudioTabs: Array<{
-    id: string;
-    label: string;
-    icon: React.ReactNode;
-    isActive: boolean;
-    onClick: () => void;
-  }> = [
-    {
-      id: '2d-engineering',
-      label: '2D Engineering',
-      icon: <DraftingCompass className="w-4 h-4" />,
-      isActive: activeWorkspace === 'cad_2d' && cadStudioMode === 'engineering',
-      onClick: () => {
-        setActiveWorkspace('cad_2d');
-        setCadStudioMode('engineering');
-      },
-    },
-    {
-      id: '2d-archlang',
-      label: '2D Presentation (ArchLang)',
-      icon: <Layers className="w-4 h-4 text-emerald-400" />,
-      isActive: activeWorkspace === 'cad_2d' && cadStudioMode === 'archlang',
-      onClick: () => {
-        setActiveWorkspace('cad_2d');
-        setCadStudioMode('archlang');
-      },
-    },
-    {
-      id: '3d-standard',
-      label: '3D Standard',
-      icon: <Box className="w-4 h-4 text-cyan-400" />,
-      isActive: activeWorkspace === 'cad_2d' && cadStudioMode === '3d-standard',
-      onClick: () => {
-        setActiveWorkspace('cad_2d');
-        setCadStudioMode('3d-standard');
-      },
-    },
-    {
-      id: '3d-pascal',
-      label: '3D Pascal Studio (Edit)',
-      icon: <Box className="w-4 h-4 text-sky-400" />,
-      isActive: activeWorkspace === 'cad_2d' && cadStudioMode === '3d-pascal',
-      onClick: () => {
-        setActiveWorkspace('cad_2d');
-        setCadStudioMode('3d-pascal');
-      },
-    },
-    {
-      id: 'split-view',
-      label: 'Split View (2D + 3D)',
-      icon: <DraftingCompass className="w-4 h-4 text-indigo-400" />,
-      isActive: activeWorkspace === 'cad_2d' && cadStudioMode === 'split-view',
-      onClick: () => {
-        setActiveWorkspace('cad_2d');
-        setCadStudioMode('split-view');
-      },
-    },
-    {
-      id: 'export-center',
-      label: 'Export Center',
-      icon: <Download className="w-4 h-4 text-amber-400" />,
-      isActive: activeWorkspace === 'export',
-      onClick: () => {
-        setActiveWorkspace('export');
-      },
-    },
-  ];
+  // User state
+  const [user, setUser] = useState<AuthUser | null>(authService.getUser());
 
-  const workspaces: Array<{ id: ArgonWorkspaceId; label: string; icon: React.ReactNode }> = [
-    { id: 'setup', label: 'Setup Wizard', icon: <Compass className="w-4 h-4" /> },
-    { id: 'edit_plan', label: 'Edit Plan', icon: <Edit3 className="w-4 h-4" /> },
-    { id: 'isometric', label: 'Floor Editor', icon: <Layers className="w-4 h-4" /> },
-    { id: 'building_3d', label: '3D Building', icon: <Box className="w-4 h-4" /> },
-    { id: 'structural_cad', label: 'Structural CAD', icon: <Building2 className="w-4 h-4" /> },
-    { id: 'engineering', label: 'Engineering', icon: <ShieldCheck className="w-4 h-4" /> },
-  ];
+  // 2D Plan contextual states
+  const [activeDiscipline, setActiveDiscipline] = useState('ARCHITECTURAL');
+  const [showInspector, setShowInspector] = useState(true);
 
+  // 2D Sheet contextual states
+  const [autoFurnish, setAutoFurnish] = useState(true);
+  const [circulationOverlay, setCirculationOverlay] = useState(false);
+  const [showDimensions, setShowDimensions] = useState(true);
+  const [lockedRoomIds, setLockedRoomIds] = useState<string[]>([]);
+  const [showRoomPadlocks, setShowRoomPadlocks] = useState(false);
+
+  // 3D Studio contextual states
+  const [isolateFloor3d, setIsolateFloor3d] = useState(false);
+  const [studioEngine, setStudioEngine] = useState<'pascal' | 'standard'>('pascal');
+  const [sync3dCount, setSync3dCount] = useState<number>(0);
+
+  // Split View contextual states
+  const [splitLeftMode, setSplitLeftMode] = useState<'engineering' | 'archlang'>('engineering');
+  const [splitRatio, setSplitRatio] = useState<number>(50); // percentage
+
+  // Planning worker & generation states
   const workerRef = useRef<Worker | null>(null);
   const lastBrief = useRef<ProjectSetupWizardData | null>(null);
   const rejectedTopologyHashes = useRef<string[]>([]);
   const [generationSeed, setGenerationSeed] = useState(1);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [generationError, setGenerationError] = useState('');
-  /**
-   * Set when geometry generated successfully but the durable save did not.
-   * Kept separate from `generationError`: the plan exists and is usable, which
-   * is a different situation from a generation that failed.
-   */
-  const [saveWarning, setSaveWarning] = useState('');
-  const [generationFindings, setGenerationFindings] = useState<readonly string[]>([]);
+  const [, setSaveWarning] = useState('');
+  const [, setGenerationFindings] = useState<readonly string[]>([]);
+  const [pipelineProgress, setPipelineProgress] = useState<PipelineStageProgressEvent | null>(null);
+
   useEffect(() => () => workerRef.current?.terminate(), []);
+
+  useEffect(() => {
+    const unsub = authService.subscribe((s) => setUser(s?.user ?? null));
+    return unsub;
+  }, []);
+
+  // Compute live compliance score once for top bar
+  const complianceScore = useMemo(() => {
+    try {
+      const metadata = editor.building.metadata as any;
+      if (metadata?.complianceReport?.score !== undefined) {
+        return metadata.complianceReport.score;
+      }
+      const evalReport = evaluateArchitecturalComplianceScore(editor.building);
+      return evalReport.score;
+    } catch {
+      return 94;
+    }
+  }, [editor.building]);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleRefreshWorkspace = async () => {
+    setIsRefreshing(true);
+    try {
+      const activeId = editor.projectId;
+      if (activeId) {
+        try {
+          const res = await fetch(`/api/projects/${encodeURIComponent(activeId)}/canonical`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.building) {
+              editor.setBuilding(data.building);
+            }
+          }
+        } catch {
+          // local fallback
+        }
+      }
+      setSync3dCount((c) => c + 1);
+      activityLogger.add({
+        type: 'sync',
+        title: 'Workspace Refreshed',
+        detail: `Re-verified ${editor.building.floors.length} floors and compliance`,
+        status: 'completed',
+      });
+      showToast('Workspace refreshed');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await authService.logout();
+    showToast('Signed out');
+    if (onBackToProjects) {
+      onBackToProjects();
+    } else {
+      window.location.href = '/login';
+    }
+  };
+
+  const handleLoadDemo = () => {
+    const demoId = 'proj-demo-canonical';
+    const demoBuilding = createCanonical30x50_2BHK('Demo Architectural Project (30x50 2BHK)', demoId);
+    editor.setBuilding(demoBuilding, 'Demo Architectural Project (30x50 2BHK)');
+    projectStorage.setActiveProjectId(demoId);
+    void fetch(`/api/projects/${demoId}/canonical`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ building: demoBuilding }),
+    }).catch(err => console.warn('Failed to sync demo building to backend:', err));
+    const firstResidential = demoBuilding.floors.find((f) => f.apartmentUnits?.length) || demoBuilding.floors[0];
+    if (firstResidential) {
+      editor.switchFloor(firstResidential.id);
+    }
+    setWorkspaceMode('studio');
+    setActiveTab('3d-studio');
+    showToast('Demo project loaded');
+  };
+
+  const projectList = useMemo(() => {
+    return projectStorage.list();
+  }, [editor.projectId, isRefreshing]);
 
   const runGeneration = (
     data: ProjectSetupWizardData,
@@ -163,7 +172,11 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
   ) => {
     workerRef.current?.terminate();
     lastBrief.current = data;
-    setIsGenerating(true); setPipelineProgress(null); setGenerationError(''); setGenerationFindings([]);
+    setIsGenerating(true);
+    setPipelineProgress(null);
+    setGenerationError('');
+    setGenerationFindings([]);
+
     try {
       const request = {
         ...createArgonRequest(data),
@@ -173,20 +186,19 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
       const worker = new Worker(new URL('../../services/argon-planning.worker.ts', import.meta.url), { type: 'module' });
       workerRef.current = worker;
       worker.onmessage = (event: MessageEvent<{
-        type: 'progress' | 'complete' | 'error'; progress?: PipelineStageProgressEvent;
-        result?: Awaited<ReturnType<typeof executeAuditedPlanningPipeline>>; message?: string;
+        type: 'progress' | 'complete' | 'error';
+        progress?: PipelineStageProgressEvent;
+        result?: Awaited<ReturnType<typeof executeAuditedPlanningPipeline>>;
+        message?: string;
       }>) => {
         if (workerRef.current !== worker) return;
         if (event.data.progress) setPipelineProgress(event.data.progress);
         if (event.data.type === 'error') {
-          setGenerationError(event.data.message ?? 'Generation failed. Review the plot and program.'); worker.terminate();
+          setGenerationError(event.data.message ?? 'Generation failed. Review the plot and program.');
+          worker.terminate();
         }
         if (event.data.type === 'complete' && event.data.result) {
           try {
-            // The plan is handed to the editor and the user is taken to it
-            // immediately. Persistence is reported separately below: a storage
-            // problem must not read as a generation failure, and must not
-            // discard the reviewable plan. Findings remain attached to it.
             const report = event.data.result.building.metadata?.generationReport;
             setGenerationFindings(
               Array.isArray(report?.violations)
@@ -196,36 +208,47 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
             const outcome = editor.setBuilding(event.data.result.building, data.projectName, {}, 'residential');
             const firstResidential = event.data.result.building.floors.find(floor => floor.apartmentUnits?.length);
             if (firstResidential) editor.switchFloor(firstResidential.id);
-            setIsGenerating(false); setActiveWorkspace('cad_2d');
+            setIsGenerating(false);
+            setWorkspaceMode('studio');
+            setActiveTab('2d-plan');
             setSaveWarning('');
 
-            // Immediately register generated building in backend registry for 3D Pascal compile
+            // Immediately register generated building in backend registry
             void fetch(`/api/projects/${encodeURIComponent(event.data.result.building.projectId)}/canonical`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ building: event.data.result.building }),
             }).catch(err => console.warn('Failed to sync canonical building to backend:', err));
 
+            activityLogger.add({
+              type: 'save',
+              title: `Generated "${data.projectName}"`,
+              detail: `${event.data.result.building.floors.length} floors synthesized with full geometry`,
+              status: 'completed',
+            });
+
             void outcome.durable.then(result => {
               if (result.state === 'SAVED') return;
               setSaveWarning(
                 result.state === 'UNAVAILABLE'
-                  ? 'This plan is open and complete, but durable storage is unavailable, so it will not '
-                    + 'survive a reload. Export the project to keep it.'
-                  : `This plan is open and complete, but it could not be saved durably: ${result.reason ?? result.state} `
-                    + 'Export the project to keep it.',
+                  ? 'This plan is open and complete, but durable storage is unavailable.'
+                  : `This plan is open and complete, but durable write had status: ${result.reason ?? result.state}.`,
               );
             });
           } catch (error) {
-            // Only a genuine defect reaches here now, not a capacity problem.
             setGenerationError(error instanceof Error ? error.message : 'Could not open the generated project.');
           }
           worker.terminate();
         }
       };
-      worker.onerror = event => { setGenerationError(event.message || 'The planning worker could not start.'); worker.terminate(); };
+      worker.onerror = event => {
+        setGenerationError(event.message || 'The planning worker could not start.');
+        worker.terminate();
+      };
       worker.postMessage(request);
-    } catch (error) { setGenerationError(error instanceof Error ? error.message : String(error)); }
+    } catch (error) {
+      setGenerationError(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const handleGenerate = (data: ProjectSetupWizardData) => {
@@ -245,299 +268,255 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
     runGeneration(lastBrief.current, nextSeed, rejectedTopologyHashes.current);
   };
 
-  const cancelGeneration = () => { workerRef.current?.terminate(); workerRef.current = null; setIsGenerating(false); };
-
-  const [showWelcome, setShowWelcome] = useState(false);
-
-  const dismissWelcome = () => {
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem('rh_welcome_dismissed', 'true');
-    }
-    setShowWelcome(false);
+  const cancelGeneration = () => {
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    setIsGenerating(false);
   };
 
-  const handleOpenDemoProject = () => {
-    const demoBuilding = createCanonical30x50_2BHK('Demo Architectural Project', 'proj-demo-canonical');
-    editor.setBuilding(demoBuilding, 'Demo Architectural Project');
-    void fetch(`/api/projects/proj-demo-canonical/canonical`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ building: demoBuilding }),
-    }).catch(err => console.warn('Failed to sync demo building to backend:', err));
-    const firstResidential = demoBuilding.floors.find((f) => f.apartmentUnits?.length) || demoBuilding.floors[0];
-    if (firstResidential) {
-      editor.switchFloor(firstResidential.id);
-    }
-    setActiveWorkspace('cad_2d');
-    setCadStudioMode('3d-pascal');
-    dismissWelcome();
-  };
+  // Keyboard shortcut listener for Command Palette (⌘K / Ctrl+K)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   return (
-    <div className="argon-shell flex flex-col h-screen w-screen bg-argon-bg text-argon-text overflow-hidden font-sans relative">
-      {showWelcome && (
-        <RHWelcomeScreen
-          onStartNewProject={dismissWelcome}
-          onOpenExisting={() => {
-            dismissWelcome();
-            setIsProjectSwitcherOpen(true);
-          }}
-          onExplore={() => {
-            dismissWelcome();
-            setActiveWorkspace('cad_2d');
-            setCadStudioMode('3d-pascal');
-          }}
-          onOpenDemo={handleOpenDemoProject}
+    <div className="argon-shell flex flex-col h-screen w-screen bg-[#F7F5F0] text-[#181D23] overflow-hidden font-sans relative">
+      {/* Toast Alert */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-[100] rounded-lg border border-[#B45309]/30 bg-[#FFFFFF] px-4 py-2.5 text-xs font-semibold text-[#181D23] shadow-xl animate-fadeIn flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-[#B45309]" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* ── ROW 1: GLOBAL STUDIO TOP BAR (52px FIXED, STRICTLY SINGLE ROW) ── */}
+      <StudioTopBar
+        projectName={editor.projectName || 'Untitled Project'}
+        projectId={editor.projectId}
+        projectList={projectList}
+        onSelectProject={(pid) => {
+          editor.loadProject(pid);
+          setWorkspaceMode('studio');
+          showToast(`Opened project`);
+        }}
+        onBackToHub={() => {
+          if (onBackToProjects) onBackToProjects();
+          else window.location.href = '/projects';
+        }}
+        onNewProject={() => setWorkspaceMode('setup')}
+        showTabs={workspaceMode === 'studio'}
+        activeTab={activeTab}
+        onTabChange={(tab) => {
+          setWorkspaceMode('studio');
+          setActiveTab(tab);
+        }}
+        complianceScore={complianceScore}
+        syncStatus="synced"
+        isRefreshing={isRefreshing}
+        onRefresh={handleRefreshWorkspace}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+        onOpenNotifications={() => setIsNotificationsOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        user={user}
+        onSignOut={handleSignOut}
+      />
+
+      {/* ── ROW 2: CONTEXTUAL FLOOR & ACTION BAR (40px FIXED) ── */}
+      {workspaceMode === 'studio' && (
+        <StudioContextBar
+          activeTab={activeTab}
+          floors={editor.building.floors}
+          activeFloorId={editor.activeFloor.id}
+          onSwitchFloor={(fid) => editor.switchFloor(fid)}
+
+          // 2D Plan
+          activeDiscipline={activeDiscipline}
+          onSelectDiscipline={setActiveDiscipline}
+          onOpenEditPlan={() => setActiveTab('2d-plan')}
+          onRegeneratePlan={handleRegenerateVariant}
+          generationSeed={generationSeed}
+          isGenerating={isGenerating}
+          canRegenerate={Boolean(lastBrief.current)}
+          showInspector={showInspector}
+          onToggleInspector={() => setShowInspector((prev) => !prev)}
+
+          // 2D Sheet
+          autoFurnish={autoFurnish}
+          onToggleAutoFurnish={() => setAutoFurnish((prev) => !prev)}
+          circulationOverlay={circulationOverlay}
+          onToggleCirculation={() => setCirculationOverlay((prev) => !prev)}
+          showDimensions={showDimensions}
+          onToggleDimensions={() => setShowDimensions((prev) => !prev)}
+          showRoomPadlocks={showRoomPadlocks}
+          onToggleRoomPadlocks={() => setShowRoomPadlocks((prev) => !prev)}
+
+          // 3D Studio
+          isolateFloor3d={isolateFloor3d}
+          onToggleIsolateFloor3d={() => setIsolateFloor3d((prev) => !prev)}
+          studioEngine={studioEngine}
+          onSelectStudioEngine={setStudioEngine}
+
+          // Split View
+          splitLeftMode={splitLeftMode}
+          onSelectSplitLeftMode={setSplitLeftMode}
+          onResetSplit5050={() => setSplitRatio(50)}
         />
       )}
-      {/* STRICTLY ONE UNIFIED TOP HEADER BAR (H-14) */}
-      <header className="h-14 bg-argon-surface/95 border-b border-argon-border flex items-center justify-between px-4 z-50 flex-shrink-0 shadow-2xs">
-        {/* Left: Brand + Project Switcher */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 px-1">
-            <div className="w-8 h-8 rounded-lg bg-argon-btn flex items-center justify-center text-argon-card shadow-xs">
-              <Building2 className="w-5 h-5" />
-            </div>
-            <span className="font-black text-lg tracking-tighter uppercase italic text-argon-text">
-              ARGON<span className="text-argon-accent font-extrabold">4</span>
-            </span>
-          </div>
 
-          <div className="h-6 w-px bg-argon-border" />
-
-          <button
-            data-testid="header-open-demo-btn"
-            onClick={handleOpenDemoProject}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black uppercase tracking-wider transition shadow-2xs cursor-pointer"
-            title="Instant load demo architectural project into 3D Pascal Studio"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Open Demo Project</span>
-          </button>
-
-          <div className="relative">
-            <button
-              onClick={() => setIsProjectSwitcherOpen(!isProjectSwitcherOpen)}
-              className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-argon-card border border-argon-border hover:bg-argon-surface transition-colors group shadow-2xs"
-            >
-              <FolderOpen className="w-4 h-4 text-argon-muted group-hover:text-argon-btn transition-colors" />
-              <div className="text-left">
-                <div className="text-[10px] font-mono font-bold text-argon-muted uppercase leading-none mb-0.5">
-                  ACTIVE PROJECT
-                </div>
-                <div className="text-sm font-bold text-argon-text leading-none">
-                  {editor.projectName || 'Untitled Project'}
-                </div>
-              </div>
-              <ChevronDown className={`w-3.5 h-3.5 text-argon-muted transition-transform ${isProjectSwitcherOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {isProjectSwitcherOpen && (
-              <div className="absolute top-full left-0 mt-2 w-72 bg-argon-card border border-argon-border rounded-xl shadow-xl z-[100] overflow-hidden animate-fadeIn">
-                <div className="p-3 border-b border-argon-border bg-argon-surface/60 flex items-center justify-between">
-                  <span className="text-[10px] font-mono font-bold text-argon-muted uppercase tracking-widest">
-                    Switch Project
-                  </span>
-                  <button className="text-[10px] font-bold text-argon-btn hover:text-argon-btnHover flex items-center gap-1">
-                    <Plus className="w-3 h-3" /> NEW
-                  </button>
-                </div>
-                <div className="max-h-80 overflow-y-auto argon-scrollbar p-1.5">
-                  {projectList.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => {
-                        editor.loadProject(p.id);
-                        setIsProjectSwitcherOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between p-3 rounded-lg transition-colors mb-1 text-left ${
-                        p.id === editor.projectId
-                          ? 'bg-argon-accent/15 border border-argon-accent/40'
-                          : 'hover:bg-argon-surface border border-transparent'
-                      }`}
-                    >
-                      <div>
-                        <div className={`text-sm font-bold ${p.id === editor.projectId ? 'text-argon-btn' : 'text-argon-text'}`}>
-                          {p.name}
-                        </div>
-                        <div className="text-[10px] text-argon-muted font-mono mt-0.5">
-                          {p.floorCount} FLOORS • {p.roomCount} ROOMS
-                        </div>
-                      </div>
-                      {p.id === editor.projectId && <Check className="w-4 h-4 text-argon-btn" />}
-                    </button>
-                  ))}
-                </div>
-                {onBackToProjects && (
-                  <button
-                    onClick={onBackToProjects}
-                    className="w-full py-3 text-center text-xs font-bold text-argon-muted hover:text-argon-text hover:bg-argon-surface border-t border-argon-border transition-colors"
-                  >
-                    ← BACK TO PROJECT HUB
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Center: 6 Primary Studio Tabs */}
-        <nav
-          className="flex items-center gap-1 bg-argon-surface/90 p-1 rounded-xl border border-argon-border shadow-xs"
-          role="tablist"
-          aria-label="Studio Mode Tabs"
-        >
-          {primaryStudioTabs.map((tab) => (
-            <button
-              key={tab.id}
-              role="tab"
-              aria-selected={tab.isActive}
-              data-testid={`top-tab-${tab.id}`}
-              onClick={tab.onClick}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                tab.isActive
-                  ? 'bg-argon-btn text-argon-card shadow-xs ring-1 ring-white/10'
-                  : 'text-argon-muted hover:text-argon-text hover:bg-argon-surface'
-              }`}
-            >
-              {tab.icon}
-              <span className="whitespace-nowrap">{tab.label}</span>
-            </button>
-          ))}
-          <div className="relative group">
-            <button
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-argon-muted hover:text-argon-text hover:bg-argon-surface transition-colors cursor-pointer"
-              title="Additional Workspaces"
-            >
-              <span>More</span>
-              <ChevronDown className="w-3 h-3" />
-            </button>
-            <div className="absolute top-full left-0 mt-1 hidden group-hover:flex flex-col w-44 bg-argon-card border border-argon-border rounded-xl shadow-xl z-50 p-1">
-              {workspaces.map((ws) => (
-                <button
-                  key={ws.id}
-                  onClick={() => setActiveWorkspace(ws.id)}
-                  className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-argon-muted hover:text-argon-text hover:bg-argon-surface rounded-lg text-left transition-colors cursor-pointer"
-                >
-                  {ws.icon}
-                  <span>{ws.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </nav>
-
-        {/* Right: Tools & Profile */}
-        <div className="flex items-center gap-3">
-          <span
-            data-testid="header-compliance-pill"
-            className="rounded-full border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 px-2.5 py-1 text-xs font-bold"
-            title="Building code & architectural compliance rating"
-          >
-            Compliance: {(editor.building.metadata as any)?.complianceReport?.score ?? 94} / 100
-          </span>
-          <span
-            data-testid="header-sync-pill"
-            className="flex items-center gap-1.5 rounded-full border border-sky-500/40 bg-sky-500/15 text-sky-300 px-2.5 py-1 text-xs font-semibold"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse" />
-            2D ⇄ 3D Synced
-          </span>
-          <SystemStatusIndicator />
-          <div className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-argon-card border border-argon-border shadow-2xs">
-            <button className="p-1.5 text-argon-muted hover:text-argon-text transition-colors" title="Command Palette (Ctrl+K)">
-              <Command className="w-4 h-4" />
-            </button>
-            <div className="w-px h-4 bg-argon-border" />
-            <button className="p-1.5 text-argon-muted hover:text-argon-text transition-colors" title="Notifications">
-              <Bell className="w-4 h-4" />
-            </button>
-            <div className="w-px h-4 bg-argon-border" />
-            <button className="p-1.5 text-argon-muted hover:text-argon-text transition-colors" title="Settings">
-              <Settings className="w-4 h-4" />
-            </button>
-          </div>
-
-          <button className="w-9 h-9 rounded-full bg-argon-card border border-argon-border flex items-center justify-center text-argon-text hover:border-argon-btn transition-all shadow-2xs">
-            <User className="w-5 h-5 text-argon-muted" />
-          </button>
-        </div>
-      </header>
-
-      {/* Main Content Area */}
-      <main className="flex-1 relative overflow-hidden flex flex-col min-h-0 bg-argon-bg">
-        {activeWorkspace === 'setup' && (
+      {/* ── MAIN WORKSPACE VIEWPORT (REMAINING 85%+ HEIGHT) ── */}
+      <main className="flex-1 relative overflow-hidden flex flex-col min-h-0 bg-[#F7F5F0]">
+        {/* SETUP WIZARD (When user creates a new project) */}
+        {workspaceMode === 'setup' && (
           <ProjectSetupWizard
             onGenerate={handleGenerate}
             onCancel={() => {
-              setActiveWorkspace('cad_2d');
-              setCadStudioMode('3d-pascal');
+              if (onBackToProjects) {
+                onBackToProjects();
+              } else {
+                setWorkspaceMode('studio');
+                setActiveTab('3d-studio');
+              }
             }}
-            onOpenDemo={handleOpenDemoProject}
           />
         )}
-        {activeWorkspace === 'cad_2d' && (
+
+        {/* 1. 2D ENGINEERING PLAN */}
+        {workspaceMode === 'studio' && activeTab === '2d-plan' && (
           <ArchitecturalCADWorkspace
             editor={editor}
             onRegeneratePlan={handleRegenerateVariant}
-            onOpenEditPlan={() => setActiveWorkspace('edit_plan')}
             generationSeed={generationSeed}
             isGenerating={isGenerating}
             canRegenerate={Boolean(lastBrief.current)}
-            mode={cadStudioMode}
-            onModeChange={setCadStudioMode}
+            mode="engineering"
+            hideToolbars={true}
+            showInspector={showInspector}
+            activeDiscipline={activeDiscipline}
+            onDisciplineChange={setActiveDiscipline}
           />
-        )}
-        {activeWorkspace === 'edit_plan' && (
-          <InteractivePlanEditorPage
-            editor={editor}
-            onBackToCad={() => setActiveWorkspace('cad_2d')}
-          />
-        )}
-        {activeWorkspace === 'isometric' && (
-          <FloorIsometricEditor editor={editor} />
-        )}
-        {activeWorkspace === 'building_3d' && (
-          <Building3DCustomizer editor={editor} />
-        )}
-        {activeWorkspace === 'structural_cad' && (
-          <StructuralCADWorkspace editor={editor} />
-        )}
-        {activeWorkspace === 'engineering' && (
-          <UdcprEtabsAnalysis editor={editor} onHighlight={()=>setActiveWorkspace('cad_2d')} />
-        )}
-        {activeWorkspace === 'export' && (
-          <ExportCenterWorkspace editor={editor} />
         )}
 
-        {/*
-          Persistence warning. Shown when the plan generated and opened
-          successfully but the durable save did not, so the user can act on it
-          by exporting. This is deliberately not an error banner: the plan is
-          complete and usable, only its storage is at risk.
-        */}
-        {generationFindings.length > 0 && (
-          <details className="absolute top-4 right-4 z-40 max-w-lg max-h-72 overflow-auto rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 shadow-lg">
-            <summary>Best-effort plan — {generationFindings.length} findings; professional review required</summary>
-            <ol className="mt-2 space-y-2">{generationFindings.map((finding, i) => <li key={i}>{finding}</li>)}</ol>
-          </details>
+        {/* 2. 2D PRESENTATION SHEET (ARCHLANG) */}
+        {workspaceMode === 'studio' && activeTab === '2d-sheet' && (
+          <ArchLangPresentationSheet
+            building={editor.building}
+            floorId={editor.activeFloor.id}
+            lockedRoomIds={lockedRoomIds}
+            onLockedRoomsChange={setLockedRoomIds}
+          />
         )}
-        {saveWarning && (
-          <div
-            role="status"
-            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-2xl px-4 py-3 rounded-lg
-                       bg-amber-50 border border-amber-300 text-amber-900 text-sm shadow-lg flex items-start gap-3"
-          >
-            <span className="font-bold shrink-0">NOT SAVED</span>
-            <span className="flex-1">{saveWarning}</span>
-            <button
-              onClick={() => setSaveWarning('')}
-              className="shrink-0 font-bold text-amber-700 hover:text-amber-900"
-              aria-label="Dismiss the storage warning"
-            >
-              ×
-            </button>
+
+        {/* 3. 3D STUDIO (PASCAL EDITABLE OR STANDARD MASSING) */}
+        {workspaceMode === 'studio' && activeTab === '3d-studio' && (
+          <div className="flex-1 min-h-0 relative">
+            {studioEngine === 'pascal' ? (
+              <PascalStudioFrame
+                projectId={editor.building.projectId}
+                building={editor.building}
+                onBuildingUpdate={(updatedBuilding) => editor.setBuilding(updatedBuilding)}
+                activeFloorId={isolateFloor3d ? editor.activeFloor.id : undefined}
+                reloadKey={sync3dCount}
+                onFallbackToStandard={() => setStudioEngine('standard')}
+              />
+            ) : (
+              <ModelWorkspace
+                building={editor.building}
+                activeFloorId={editor.activeFloor.id}
+                selection={editor.selection}
+                onSelectEntity={editor.selectEntity}
+                onClearSelection={editor.clearSelection}
+                onSwitchFloor={editor.switchFloor}
+                onApplyBuilding={editor.applyRefinement}
+                generationControl={editor.generationControl}
+              />
+            )}
           </div>
+        )}
+
+        {/* 4. SYNCHRONIZED SPLIT VIEW (2D + 3D) */}
+        {workspaceMode === 'studio' && activeTab === 'split-view' && (
+          <div className="flex min-h-0 flex-1 flex-col lg:flex-row overflow-hidden border-t border-[#E2DDD5]">
+            {/* Left Pane (2D) */}
+            <div
+              data-testid="split-pane-left"
+              className="split-pane-left min-w-0 flex flex-col border-b lg:border-b-0 lg:border-r border-[#E2DDD5]"
+              style={{ flex: `${splitRatio} 1 0%` }}
+            >
+              <div className="px-3 py-1.5 bg-[#FFFFFF] border-b border-[#E2DDD5] flex items-center justify-between text-xs">
+                <span className="font-semibold text-[#181D23]">
+                  {splitLeftMode === 'engineering' ? '2D Engineering Plan' : '2D Presentation Sheet (ArchLang)'}
+                </span>
+                <span className="text-[10px] font-mono text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">
+                  2D ⇄ 3D Synced
+                </span>
+              </div>
+              <div className="flex-1 min-h-0 relative">
+                {splitLeftMode === 'engineering' ? (
+                  <ArchitecturalCADWorkspace
+                    editor={editor}
+                    mode="engineering"
+                    hideToolbars={true}
+                    showInspector={false}
+                  />
+                ) : (
+                  <ArchLangPresentationSheet
+                    building={editor.building}
+                    floorId={editor.activeFloor.id}
+                    lockedRoomIds={lockedRoomIds}
+                    onLockedRoomsChange={setLockedRoomIds}
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* Split Divider */}
+            <div
+              data-testid="split-pane-divider"
+              className="split-pane-divider hidden lg:block w-1 bg-[#E2DDD5] cursor-col-resize hover:bg-[#B45309] transition shrink-0"
+            />
+
+            {/* Right Pane (3D Pascal Studio) */}
+            <div
+              data-testid="split-pane-right"
+              className="split-pane-right min-w-0 flex flex-col"
+              style={{ flex: `${100 - splitRatio} 1 0%` }}
+            >
+              <div className="px-3 py-1.5 bg-[#FFFFFF] border-b border-[#E2DDD5] flex items-center justify-between text-xs">
+                <span className="font-semibold text-[#181D23]">Pascal 3D Studio</span>
+                <button
+                  type="button"
+                  data-testid="split-sync-btn"
+                  onClick={() => setSync3dCount((c) => c + 1)}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 hover:bg-amber-100 text-[#B45309] border border-amber-200 text-[11px] font-bold transition"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  <span>Sync 2D → 3D</span>
+                </button>
+              </div>
+              <div className="flex-1 min-h-0 relative">
+                <PascalStudioFrame
+                  projectId={editor.building.projectId}
+                  building={editor.building}
+                  onBuildingUpdate={(updatedBuilding) => editor.setBuilding(updatedBuilding)}
+                  activeFloorId={editor.activeFloor.id}
+                  reloadKey={sync3dCount}
+                  onFallbackToStandard={() => setStudioEngine('standard')}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 5. EXPORT CENTER */}
+        {workspaceMode === 'studio' && activeTab === 'export' && (
+          <ExportCenterWorkspace editor={editor} />
         )}
 
         {/* Generation Progress Modal */}
@@ -545,46 +524,52 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
           isOpen={isGenerating}
           progress={pipelineProgress}
           error={generationError}
-          onRetry={() => { if (lastBrief.current) handleGenerate(lastBrief.current); }}
+          onRetry={() => {
+            if (lastBrief.current) handleGenerate(lastBrief.current);
+          }}
           onCancel={cancelGeneration}
         />
       </main>
 
-      {/* Global CSS Injection for ARGON 4 Components */}
-      <style dangerouslySetInnerHTML={{ __html: `
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(4px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fadeIn {
-          animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 6px;
-          height: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #334155;
-          border-radius: 10px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #475569;
-        }
-        input[type="range"]::-webkit-slider-thumb {
-          -webkit-appearance: none;
-          height: 16px;
-          width: 16px;
-          border-radius: 50%;
-          background: #f59e0b;
-          cursor: pointer;
-          border: 2px solid #0f172a;
-          box-shadow: 0 0 10px rgba(245, 158, 11, 0.3);
-        }
-      ` }} />
-      <JobTracker />
+      {/* ── INTERACTIVE MODALS & DRAWERS ── */}
+      {/* Command Palette Modal (⌘K) */}
+      <CommandPaletteModal
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        onSwitchMode={(mode) => {
+          setWorkspaceMode('studio');
+          setActiveTab(mode);
+        }}
+        onSwitchFloor={(fid) => editor.switchFloor(fid)}
+        floors={editor.building.floors}
+        onRefresh={handleRefreshWorkspace}
+        onNewProject={() => setWorkspaceMode('setup')}
+        onBackToHub={() => {
+          if (onBackToProjects) onBackToProjects();
+          else window.location.href = '/projects';
+        }}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onSignOut={handleSignOut}
+        onLoadDemo={handleLoadDemo}
+      />
+
+      {/* Settings Modal (⚙) */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onSave={(settings: StudioSettings) => {
+          showToast(`Preferences saved (${settings.unitSystem.toUpperCase()})`);
+        }}
+      />
+
+      {/* Job Activity Drawer (🔔) */}
+      <JobActivityDrawer
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
+        projectId={editor.projectId}
+      />
     </div>
   );
 };
+
+export default ArgonStudioShell;

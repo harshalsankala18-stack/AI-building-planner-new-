@@ -349,9 +349,12 @@ export class LocalStorageProjectStorage {
 
   list(): ProjectHeader[] {
     const list: ProjectHeader[] = [];
+    const seenIds = new Set<string>();
     for (const record of projectStore.readAll()) {
       const data = safeParse(record.payload);
-      if (!data) continue;
+      if (!data || !data.projectId) continue;
+      if (seenIds.has(data.projectId)) continue;
+      seenIds.add(data.projectId);
       list.push({
         id: data.projectId,
         name: data.name ?? 'Untitled Project',
@@ -575,7 +578,7 @@ export function parseAndValidateProjectJson(jsonString: string): ProjectEnvelope
 /** Create Canonical 30×50 2BHK Plan via Authoritative Domain APIs */
 export function createCanonical30x50_2BHK(
   projectName = 'Canonical 30×50 2BHK',
-  projectId = `proj_${Date.now()}`,
+  projectId = 'proj-canonical-30x50-2bhk',
 ): Building {
   // 30ft x 50ft = 9144mm x 15240mm
   const defaultComplianceReport = {

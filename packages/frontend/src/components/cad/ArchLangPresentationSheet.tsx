@@ -413,57 +413,60 @@ export const ArchLangPresentationSheet: React.FC<ArchLangPresentationSheetProps>
 
       {/* Main View Area: Canvas + Optional Lock Side Panel */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        {/* SVG Presentation Canvas */}
-        <div
-          className="relative flex-1 cursor-grab overflow-hidden active:cursor-grabbing"
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-        >
-          {loading && (
-            <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm">
-              <div className="flex items-center gap-3 rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-200 shadow-xl">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400 border-t-transparent" />
-                Compiling ArchLang 2D Presentation Sheet...
+        {/* Left: SVG Canvas + Docked 56px AI Edit Footer */}
+        <div className="flex-1 min-w-0 flex flex-col h-full overflow-hidden relative">
+          {/* SVG Presentation Canvas Area */}
+          <div
+            className="relative flex-1 min-h-0 cursor-grab overflow-hidden active:cursor-grabbing"
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+          >
+            {loading && (
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm">
+                <div className="flex items-center gap-3 rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-200 shadow-xl">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400 border-t-transparent" />
+                  Compiling ArchLang 2D Presentation Sheet...
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {error && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center p-6">
-              <div className="max-w-md rounded-xl border border-red-500/40 bg-red-950/40 p-5 text-center text-red-200 backdrop-blur">
-                <ShieldAlert className="mx-auto mb-2 h-8 w-8 text-red-400" />
-                <h4 className="font-semibold">ArchLang Compilation Error</h4>
-                <p className="mt-1 text-xs text-red-300">{error}</p>
+            {error && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center p-6">
+                <div className="max-w-md rounded-xl border border-red-500/40 bg-red-950/40 p-5 text-center text-red-200 backdrop-blur">
+                  <ShieldAlert className="mx-auto mb-2 h-8 w-8 text-red-400" />
+                  <h4 className="font-semibold">ArchLang Compilation Error</h4>
+                  <p className="mt-1 text-xs text-red-300">{error}</p>
+                </div>
               </div>
+            )}
+
+            {!loading && !error && previewData?.svg && (
+              <div
+                className="flex h-full w-full items-center justify-center p-8 transition-transform duration-75 select-none"
+                style={{
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+                  transformOrigin: 'center center',
+                }}
+                dangerouslySetInnerHTML={{ __html: previewData.svg }}
+              />
+            )}
+
+            {/* Quick HUD watermark */}
+            <div className="pointer-events-none absolute bottom-4 left-4 z-10 flex items-center gap-2 rounded border border-slate-800 bg-slate-900/80 px-2.5 py-1 text-[11px] text-slate-400 backdrop-blur">
+              <span>Floor: <strong className="text-slate-200">{previewData?.floorName ?? floorId}</strong></span>
+              <span>·</span>
+              <span>Zoom: <strong>{Math.round(scale * 100)}%</strong></span>
+              <span>·</span>
+              <span>Scale: <strong>1:100 Metric</strong></span>
             </div>
-          )}
-
-          {!loading && !error && previewData?.svg && (
-            <div
-              className="flex h-full w-full items-center justify-center p-8 transition-transform duration-75 select-none"
-              style={{
-                transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
-                transformOrigin: 'center center',
-              }}
-              dangerouslySetInnerHTML={{ __html: previewData.svg }}
-            />
-          )}
-
-          {/* Quick HUD watermark */}
-          <div className="pointer-events-none absolute bottom-16 left-3 z-10 flex items-center gap-2 rounded border border-slate-800 bg-slate-900/80 px-2.5 py-1 text-[11px] text-slate-400 backdrop-blur">
-            <span>Floor: <strong className="text-slate-200">{previewData?.floorName ?? floorId}</strong></span>
-            <span>·</span>
-            <span>Zoom: <strong>{Math.round(scale * 100)}%</strong></span>
-            <span>·</span>
-            <span>Scale: <strong>1:100 Metric</strong></span>
           </div>
 
-          {/* Phase 4: Bottom AI Edit Bar */}
-          <div className="absolute bottom-3 left-3 right-3 z-20 flex flex-col gap-1.5">
+          {/* Phase 4: Clean 56px Docked Footer Strip BELOW the Canvas (Never Floating Over Drawing) */}
+          <div className="h-14 max-h-14 shrink-0 border-t border-slate-800 bg-slate-900/95 px-4 flex items-center justify-between z-20 backdrop-blur">
             {aiError && (
-              <div className="flex items-center justify-between rounded-lg border border-red-500/40 bg-red-950/80 px-3 py-1.5 text-xs text-red-200 backdrop-blur">
+              <div className="absolute -top-10 left-4 right-4 z-30 flex items-center justify-between rounded-lg border border-red-500/40 bg-red-950/90 px-3 py-1.5 text-xs text-red-200 backdrop-blur">
                 <div className="flex items-center gap-2">
                   <ShieldAlert className="h-4 w-4 text-red-400 shrink-0" />
                   <span>{aiError}</span>
@@ -480,19 +483,27 @@ export const ArchLangPresentationSheet: React.FC<ArchLangPresentationSheetProps>
 
             <form
               onSubmit={handleApplyAiEdit}
-              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/95 p-1.5 shadow-2xl backdrop-blur"
+              className="w-full flex items-center gap-2"
             >
-              <div className="flex items-center pl-2.5 text-emerald-400">
+              <div className="flex items-center text-emerald-400 pl-1">
                 <Sparkles className="h-4 w-4" />
               </div>
 
+              {localLockedIds.length > 0 && (
+                <span className="shrink-0 rounded bg-purple-950/80 px-2 py-0.5 text-[10px] font-semibold text-purple-300 border border-purple-500/30 flex items-center gap-1">
+                  <Lock className="h-3 w-3" />
+                  <span>{localLockedIds.length} locked</span>
+                </span>
+              )}
+
               <input
                 type="text"
+                data-testid="ai-2d-prompt-input"
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
-                placeholder="Ask AI to edit this floor (e.g., 'Enlarge living room and add study nook')..."
+                placeholder="Ask AI to edit this floor (e.g., 'Enlarge living room by 3ft and add terrace')..."
                 disabled={aiEditing}
-                className="flex-1 bg-transparent px-2 py-1 text-xs text-slate-100 placeholder-slate-400 focus:outline-none"
+                className="flex-1 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-emerald-500"
               />
 
               {isAiModified && (
@@ -514,8 +525,9 @@ export const ArchLangPresentationSheet: React.FC<ArchLangPresentationSheetProps>
 
               <button
                 type="submit"
+                data-testid="ai-2d-apply-btn"
                 disabled={aiEditing || !aiPrompt.trim()}
-                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 px-3 py-1.5 text-xs font-semibold text-white transition shadow-sm"
+                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 px-3 py-1.5 text-xs font-semibold text-white transition shadow-sm cursor-pointer"
               >
                 {aiEditing ? (
                   <>

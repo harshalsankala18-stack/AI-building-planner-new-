@@ -10,8 +10,9 @@ import {
   RotateCcw,
   Save,
   Sparkles,
-  Send,
 } from 'lucide-react';
+import { ConfirmModal } from '../common/ConfirmModal';
+import { Ai3DEditDrawer } from './Ai3DEditDrawer';
 import {
   isStudioMessage,
   isValidBridgeOrigin,
@@ -44,15 +45,15 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [warningsExpanded, setWarningsExpanded] = useState(false);
 
   // Phase 4: 3D AI editing state
-  const [aiPrompt3d, setAiPrompt3d] = useState('');
   const [aiEditing3d, setAiEditing3d] = useState(false);
-  const [aiError3d, setAiError3d] = useState<string | null>(null);
-  const [appliedOpsCount, setAppliedOpsCount] = useState<number | null>(null);
+  const [, setAppliedOpsCount] = useState<number | null>(null);
 
   // Check WebGPU availability at mount
   useEffect(() => {
@@ -241,10 +242,12 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
     postToStudio({ type: 'REQUEST_SAVE', requestId });
   };
 
-  const handleReset = async () => {
-    if (!window.confirm('Reset 3D scene from the latest 2D floor plan? Any manual 3D overrides will be replaced.')) {
-      return;
-    }
+  const handleReset = () => {
+    setIsResetConfirmOpen(true);
+  };
+
+  const executeReset = async () => {
+    setIsResetConfirmOpen(false);
     setResetting(true);
     setStatusMessage('Resetting scene from 2D plan...');
     try {
@@ -294,19 +297,15 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
     }
   };
 
-  const handleApplyAiEdit3d = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!aiPrompt3d.trim() || aiEditing3d) return;
-
+  const handleApplyAiEditPrompt = async (promptText: string): Promise<{ appliedCount: number }> => {
     setAiEditing3d(true);
-    setAiError3d(null);
     setStatusMessage('Applying 3D AI edit...');
 
     try {
       const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/ai-edit/3d`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: aiPrompt3d.trim() }),
+        body: JSON.stringify({ prompt: promptText.trim() }),
       });
 
       if (!res.ok) {
@@ -323,18 +322,15 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
         });
 
         setIsDirty(true);
-        setAppliedOpsCount(data.appliedOperations?.length || 0);
-        setStatusMessage(`3D edit applied (${data.appliedOperations?.length || 0} operations)`);
-        setAiPrompt3d('');
+        const ops = data.appliedOperations?.length || 1;
+        setAppliedOpsCount(ops);
+        setStatusMessage(`3D edit applied (${ops} operations)`);
+        return { appliedCount: ops };
       } else {
         const refusalMsg = data.refusals?.join('; ') || data.error || '3D edit could not be applied';
-        setAiError3d(refusalMsg);
         setStatusMessage('3D edit rejected');
+        throw new Error(refusalMsg);
       }
-    } catch (err: any) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setAiError3d(msg);
-      setStatusMessage(`Error: ${msg}`);
     } finally {
       setAiEditing3d(false);
     }
@@ -435,8 +431,9 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
 
           {/* Reset from 2D Plan */}
           <button
+            data-testid="pascal-reset-from-2d-btn"
             onClick={handleReset}
-            disabled={!studioReady || resetting}
+            disabled={resetting}
             className="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 border border-slate-700 transition"
             title="Discard 3D edits and regenerate fresh from 2D plan"
           >
@@ -468,10 +465,23 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
             )}
             <span>Save 3D Edits</span>
           </button>
+
+          {/* AI 3D Edit Drawer Button */}
+          <button
+            type="button"
+            data-testid="pascal-ai-3d-btn"
+            onClick={() => setIsAiDrawerOpen(true)}
+            disabled={!studioReady}
+            className="flex items-center gap-1.5 px-3 py-1 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-bold transition shadow-xs cursor-pointer"
+            title="Open AI 3D Scene Mutation Drawer"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>AI 3D Edit</span>
+          </button>
         </div>
       </div>
 
-      {/* Embedded Pascal Studio Sub-App */}
+      {/* Embedded Pascal Studio Sub-App — 100% Full Bleed, Zero Bottom Overlays */}
       <div className="relative flex-1 w-full h-full overflow-hidden">
         <iframe
           ref={iframeRef}
@@ -484,68 +494,28 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
             postToStudio({ type: 'PING' });
           }}
         />
-
-        {/* Phase 4: Bottom AI 3D Edit Bar */}
-        <div className="absolute bottom-4 left-4 right-4 z-20 flex flex-col gap-1.5 max-w-2xl mx-auto">
-          {aiError3d && (
-            <div className="flex items-center justify-between rounded-lg border border-red-500/40 bg-red-950/85 px-3 py-1.5 text-xs text-red-200 backdrop-blur">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
-                <span>{aiError3d}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAiError3d(null)}
-                className="text-red-400 hover:text-red-200 text-xs ml-2"
-              >
-                ✕
-              </button>
-            </div>
-          )}
-
-          <form
-            onSubmit={handleApplyAiEdit3d}
-            className="flex items-center gap-2 rounded-xl border border-sky-500/30 bg-slate-900/95 p-1.5 shadow-2xl backdrop-blur"
-          >
-            <div className="flex items-center pl-2.5 text-sky-400">
-              <Sparkles className="h-4 w-4" />
-            </div>
-
-            <input
-              type="text"
-              value={aiPrompt3d}
-              onChange={(e) => setAiPrompt3d(e.target.value)}
-              placeholder="Ask AI to edit 3D scene (e.g., 'Furnish living room with sofa', 'Add window on north wall')..."
-              disabled={aiEditing3d || !studioReady}
-              className="flex-1 bg-transparent px-2 py-1 text-xs text-slate-100 placeholder-slate-400 focus:outline-none"
-            />
-
-            {appliedOpsCount !== null && (
-              <span className="rounded bg-sky-950/80 px-2 py-0.5 text-[10px] font-semibold text-sky-300 border border-sky-500/30 shrink-0">
-                {appliedOpsCount} ops applied
-              </span>
-            )}
-
-            <button
-              type="submit"
-              disabled={aiEditing3d || !studioReady || !aiPrompt3d.trim()}
-              className="flex items-center gap-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 px-3 py-1.5 text-xs font-semibold text-white transition shadow-sm"
-            >
-              {aiEditing3d ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>Mutating...</span>
-                </>
-              ) : (
-                <>
-                  <Send className="h-3.5 w-3.5" />
-                  <span>Apply 3D Edit</span>
-                </>
-              )}
-            </button>
-          </form>
-        </div>
       </div>
+
+      {/* AI 3D Scene Edit Drawer (Collapsible Right Slide-Over, Zero Bottom Collision) */}
+      <Ai3DEditDrawer
+        isOpen={isAiDrawerOpen}
+        onClose={() => setIsAiDrawerOpen(false)}
+        onApplyPrompt={handleApplyAiEditPrompt}
+        isSubmitting={aiEditing3d}
+        studioReady={studioReady}
+        onResetFrom2D={handleReset}
+      />
+
+      {/* Reset Confirmation Themed Modal (No native browser alert) */}
+      <ConfirmModal
+        isOpen={isResetConfirmOpen}
+        title="Reset 3D Scene to 2D Plan"
+        message="Discard manual 3D scene adjustments and regenerate clean geometry from the active 2D floor plan?"
+        confirmLabel="Reset 3D Scene"
+        isDestructive={true}
+        onConfirm={executeReset}
+        onCancel={() => setIsResetConfirmOpen(false)}
+      />
     </div>
   );
 };

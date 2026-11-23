@@ -65,11 +65,11 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
   const sitePoints: [number, number][] = building.site?.plotBoundary?.points
     ? building.site.plotBoundary.points.map(p => [safeNum(p.x) / 1000, safeNum(p.y) / 1000] as [number, number])
     : [
-        [0, 0],
-        [safeNum(building.site?.plotWidth, 30000) / 1000, 0],
-        [safeNum(building.site?.plotWidth, 30000) / 1000, safeNum(building.site?.plotDepth, 25000) / 1000],
-        [0, safeNum(building.site?.plotDepth, 25000) / 1000],
-      ];
+      [0, 0],
+      [safeNum(building.site?.plotWidth, 30000) / 1000, 0],
+      [safeNum(building.site?.plotWidth, 30000) / 1000, safeNum(building.site?.plotDepth, 25000) / 1000],
+      [0, safeNum(building.site?.plotDepth, 25000) / 1000],
+    ];
 
   const siteMetadata: Record<string, unknown> = {
     canonicalId: building.site?.id ?? 'default-site',
@@ -183,17 +183,17 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
     const synthesizedWalls: SynthesizedWall[] = shouldSynthesize
       ? synthesizeFloorWalls(floor)
       : (floor.walls ?? []).map(w => ({
-          id: w.id,
-          floorId: floor.id,
-          startPoint: w.startPoint,
-          endPoint: w.endPoint,
-          thickness: w.thickness ?? 230,
-          heightMm: floor.floorHeight ?? 3000,
-          wallUse: w.wallUse === 'EXTERNAL' ? 'EXTERNAL' : 'INTERNAL_PARTITION',
-          roomIds: [...(w.roomIds ?? [])],
-          canonicalWallId: w.id,
-          isSynthesized: false,
-        }));
+        id: w.id,
+        floorId: floor.id,
+        startPoint: w.startPoint,
+        endPoint: w.endPoint,
+        thickness: w.thickness ?? 230,
+        heightMm: floor.floorHeight ?? 3000,
+        wallUse: w.wallUse === 'EXTERNAL' ? 'EXTERNAL' : 'INTERNAL_PARTITION',
+        roomIds: [...(w.roomIds ?? [])],
+        canonicalWallId: w.id,
+        isSynthesized: false,
+      }));
 
     const floorWallMap = new Map<string, string>(); // canonical / syn wall id -> pascal wall id
     const wallChildrenMap = new Map<string, string[]>(); // pascal wall id -> opening ids

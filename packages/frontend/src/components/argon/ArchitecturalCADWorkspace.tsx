@@ -25,6 +25,10 @@ export interface ArchitecturalCADWorkspaceProps {
   canRegenerate?: boolean;
   mode?: StudioWorkspaceMode;
   onModeChange?: (mode: StudioWorkspaceMode) => void;
+  hideToolbars?: boolean;
+  showInspector?: boolean;
+  activeDiscipline?: string;
+  onDisciplineChange?: (discipline: string) => void;
 }
 
 export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps> = ({
@@ -36,10 +40,12 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
   canRegenerate = true,
   mode,
   onModeChange,
+  hideToolbars = false,
+  showInspector = true,
+  activeDiscipline: _activeDiscipline = 'ARCHITECTURAL',
+  onDisciplineChange: _onDisciplineChange,
 }) => {
   const aiTelemetry = editor.building.metadata.generationBrief?.aiTelemetry;
-  const activeArchetype = editor.building.metadata.generationBrief?.archetype;
-  const activeMassingShape = editor.building.metadata.generationBrief?.buildingMassingShape;
   const [internalMode, setInternalMode] = useState<StudioWorkspaceMode>('engineering');
   const workspaceMode = mode ?? internalMode;
   const setWorkspaceMode = (nextMode: StudioWorkspaceMode) => {
@@ -111,134 +117,129 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
       className="flex h-full min-h-0 flex-col bg-slate-950 text-slate-100"
       aria-label="Architectural CAD workspace"
     >
-      {/* SLIM UNIFIED ACTION BAR (~38px) */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-900/90 px-3 py-1.5 text-xs">
-        {/* Left: Floor Selector + Quick Actions */}
-        <div className="flex items-center gap-2 overflow-x-auto" aria-label="Model floors">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1">Floor:</span>
-          {editor.building.floors.map((floor) => (
-            <button
-              key={floor.id}
-              onClick={() => editor.switchFloor(floor.id)}
-              className={`shrink-0 rounded px-2.5 py-1 text-xs font-semibold transition ${
-                floor.id === editor.activeFloor.id
-                  ? 'bg-amber-500 text-slate-950 shadow-xs'
-                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
-              }`}
-            >
-              {floor.name}
-            </button>
-          ))}
-
-          {onRegeneratePlan && (
-            <button
-              type="button"
-              disabled={isGenerating || !canRegenerate}
-              onClick={onRegeneratePlan}
-              className="ml-2 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 px-2.5 py-1 text-xs font-semibold disabled:opacity-50 transition"
-            >
-              {isGenerating ? 'Regenerating...' : `Regen Seed #${generationSeed}`}
-            </button>
-          )}
-
-          {onOpenEditPlan && (
-            <button
-              type="button"
-              onClick={onOpenEditPlan}
-              className="rounded bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/40 px-2.5 py-1 text-xs font-semibold transition"
-            >
-              Edit Plan
-            </button>
-          )}
-        </div>
-
-        {/* Right: Telemetry, Compliance Score, Export */}
-        <div className="flex items-center gap-2 shrink-0">
-        <span
-          className={`rounded-full border px-2.5 py-1 text-xs font-medium ${aiTelemetry?.geminiInvoked
-            ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
-            : 'border-slate-600 bg-slate-800 text-slate-300'
-            }`}
-          title={
-            aiTelemetry?.geminiInvoked
-              ? `Gemini proposal active (${aiTelemetry.modelUsed ?? 'gemini'})${aiTelemetry.referenceImageUsedForGeometry ? ' + Vision Spatial Graph' : ''}${activeMassingShape ? ` · ${activeMassingShape}` : ''}${activeArchetype ? ` · ${activeArchetype}` : ''}`
-              : aiTelemetry?.fallbackReason ?? `Deterministic solver engine${activeMassingShape ? ` · ${activeMassingShape}` : ''}`
-          }
-        >
-          {aiTelemetry?.geminiInvoked
-            ? `Gemini AI (${aiTelemetry.modelUsed ?? 'gemini'})`
-            : 'Deterministic Engine'}
-          {activeMassingShape ? ` · ${activeMassingShape.replace(/_/g, ' ')}` : ''}
-        </span>
-        <span
-          className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${complianceReport.score >= 85 && complianceReport.redConflictCount === 0
-            ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
-            : 'border-amber-500/40 bg-amber-500/15 text-amber-300'
-            }`}
-          title={
-            (complianceReport?.violations?.length ?? 0) > 0
-              ? complianceReport.violations
-                .map((v) => (typeof v === 'string' ? v : v.message))
-                .join(' | ')
-              : 'All 6 architectural & code compliance checks passed (>= 85 / 100).'
-          }
-        >
-          Compliance Score: {complianceReport.score} / 100
-        </span>
-        {(['dwg', 'dxf', 'pdf'] as const).map((format) => (
-          <button
-            key={format}
-            className="rounded bg-slate-800 px-3 py-2 text-xs"
-            onClick={() => void quickExport(format)}
-          >
-            Export {format.toUpperCase()}
-          </button>
-        ))}
-        <span role="status" className="text-xs text-amber-200">
-          {exportStatus}
-        </span>
-        </div>
-      </div>
-        {workspaceMode === 'engineering' && (
-          <div
-            className="argon-tool-strip argon-discipline-toolbar flex flex-wrap items-center gap-1.5"
-            role="toolbar"
-            aria-label="Engineering discipline overlay switcher"
-          >
-            <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              Discipline Plans:
-            </span>
-            {(
-              [
-                ['ARCHITECTURAL', 'Architectural Plan'],
-                ['STRUCTURAL', 'Structural + Chajja Plan'],
-                ['ELECTRICAL', 'Electrical Plan (M-ELEC)'],
-                ['PLUMBING', 'Plumbing & OTS Duct Plan (M-PLUMB)'],
-                ['FIRE_SAFETY', 'Fire Safety Plan (F-FIRE)'],
-                ['FALSE_CEILING', 'False Ceiling Plan (A-CEIL)'],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                aria-pressed={disciplines[key]}
-                onClick={() => {
-                  const nextVal = !disciplines[key];
-                  setDisciplines((p) => ({ ...p, [key]: nextVal }));
-                  if (key === 'STRUCTURAL') {
-                    setEntityLayers((p) => ({ ...p, columns: nextVal, beams: nextVal }));
-                  }
-                }}
-                className={`shrink-0 rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${disciplines[key]
-                  ? 'bg-cyan-500 text-slate-950 font-semibold'
-                  : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+      {/* CONDITIONAL ACTION BAR: Hidden when controlled by unified StudioContextBar */}
+      {!hideToolbars && (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-900/90 px-3 py-1.5 text-xs">
+            {/* Left: Floor Selector + Quick Actions */}
+            <div className="flex items-center gap-2 overflow-x-auto" aria-label="Model floors">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1">Floor:</span>
+              {editor.building.floors.map((floor) => (
+                <button
+                  key={floor.id}
+                  onClick={() => editor.switchFloor(floor.id)}
+                  className={`shrink-0 rounded px-2.5 py-1 text-xs font-semibold transition ${
+                    floor.id === editor.activeFloor.id
+                      ? 'bg-amber-500 text-slate-950 shadow-xs'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
                   }`}
+                >
+                  {floor.name}
+                </button>
+              ))}
+
+              {onRegeneratePlan && (
+                <button
+                  type="button"
+                  disabled={isGenerating || !canRegenerate}
+                  onClick={onRegeneratePlan}
+                  className="ml-2 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 px-2.5 py-1 text-xs font-semibold disabled:opacity-50 transition"
+                >
+                  {isGenerating ? 'Regenerating...' : `Regen Seed #${generationSeed}`}
+                </button>
+              )}
+
+              {onOpenEditPlan && (
+                <button
+                  type="button"
+                  onClick={onOpenEditPlan}
+                  className="rounded bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/40 px-2.5 py-1 text-xs font-semibold transition"
+                >
+                  Edit Plan
+                </button>
+              )}
+            </div>
+
+            {/* Right: Telemetry, Compliance Score, Export */}
+            <div className="flex items-center gap-2 shrink-0">
+              <span
+                className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
+                  aiTelemetry?.geminiInvoked
+                    ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                    : 'border-slate-600 bg-slate-800 text-slate-300'
+                }`}
               >
-                {label}
-              </button>
-            ))}
+                {aiTelemetry?.geminiInvoked
+                  ? `Gemini AI (${aiTelemetry.modelUsed ?? 'gemini'})`
+                  : 'Deterministic Engine'}
+              </span>
+              <span
+                className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                  complianceReport.score >= 85 && complianceReport.redConflictCount === 0
+                    ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                    : 'border-amber-500/40 bg-amber-500/15 text-amber-300'
+                }`}
+              >
+                Compliance Score: {complianceReport.score} / 100
+              </span>
+              {(['dwg', 'dxf', 'pdf'] as const).map((format) => (
+                <button
+                  key={format}
+                  className="rounded bg-slate-800 px-3 py-2 text-xs"
+                  onClick={() => void quickExport(format)}
+                >
+                  Export {format.toUpperCase()}
+                </button>
+              ))}
+              <span role="status" className="text-xs text-amber-200">
+                {exportStatus}
+              </span>
+            </div>
           </div>
-        )}
+
+          {workspaceMode === 'engineering' && (
+            <div
+              className="argon-tool-strip argon-discipline-toolbar flex flex-wrap items-center gap-1.5"
+              role="toolbar"
+              aria-label="Engineering discipline overlay switcher"
+            >
+              <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                Discipline Plans:
+              </span>
+              {(
+                [
+                  ['ARCHITECTURAL', 'Architectural Plan'],
+                  ['STRUCTURAL', 'Structural + Chajja Plan'],
+                  ['ELECTRICAL', 'Electrical Plan (M-ELEC)'],
+                  ['PLUMBING', 'Plumbing & OTS Duct Plan (M-PLUMB)'],
+                  ['FIRE_SAFETY', 'Fire Safety Plan (F-FIRE)'],
+                  ['FALSE_CEILING', 'False Ceiling Plan (A-CEIL)'],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={disciplines[key]}
+                  onClick={() => {
+                    const nextVal = !disciplines[key];
+                    setDisciplines((p) => ({ ...p, [key]: nextVal }));
+                    if (key === 'STRUCTURAL') {
+                      setEntityLayers((p) => ({ ...p, columns: nextVal, beams: nextVal }));
+                    }
+                  }}
+                  className={`shrink-0 rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    disciplines[key]
+                      ? 'bg-cyan-500 text-slate-950 font-semibold'
+                      : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
       {workspaceMode === 'archlang' && (
         <ArchLangPresentationSheet
           building={editor.building}
@@ -320,89 +321,116 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
       )}
 
       {workspaceMode === 'engineering' && (
-        <>
-          <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-            <div className="relative min-h-[320px] min-w-0 flex-1">
-              <ArchitecturalCanvas
-                modelOnly
-                entityLayers={entityLayers}
-                disciplines={disciplines}
-                editor={editor}
-                snapEnabled
-                layers={layers}
-                fitRequest={0}
-              />
-            </div>
-            <aside className="w-full overflow-auto border-t border-slate-700 bg-slate-900 p-5 lg:w-80 lg:border-l lg:border-t-0">
-              <PropertyInspector editor={editor} embedded />
-              <h2 className="font-bold">Geometry audit · revision {editor.building.version}</h2>
-              <p className={`my-3 text-sm ${report.isValid ? 'text-emerald-300' : 'text-amber-300'}`}>
-                {report.isValid ? 'INTERNAL GEOMETRY CHECK PASSED' : 'CORRECTION REQUIRED'}
-              </p>
-              <p className="text-xs text-slate-300">Measured area delta: {report.planarDeltaMm2} mm²</p>
-              <p className="my-3 text-xs text-slate-400">
-                This software check does not certify structural safety or regulatory compliance.
-                Professional review required.
-              </p>
-              <div className="my-4 flex flex-wrap gap-2">
-                {(
-                  ['rooms', 'walls', 'openings', 'stairs', 'dimensions', 'grid'] as WorkspaceLayer[]
-                ).map((layer) => (
-                  <button
-                    key={layer}
-                    aria-pressed={layers[layer]}
-                    onClick={() =>
-                      setLayers((previous) => ({ ...previous, [layer]: !previous[layer] }))
-                    }
-                    className={`rounded px-2 py-1 text-xs ${layers[layer] ? 'bg-amber-500/20 text-amber-200' : 'bg-slate-800 text-slate-400'}`}
-                  >
-                    {layer}
-                  </button>
-                ))}
-              </div>
-              <ul className="space-y-3 text-xs">
-                {report.errors
-                  .filter((error) => !error.autoCorrected)
-                  .map((error, index) => (
-                    <li key={`${error.code}-${index}`} className="rounded border border-slate-700 p-2">
-                      <strong>{error.code}</strong>
-                      <p className="mt-1 text-slate-300">{error.description}</p>
-                    </li>
-                  ))}
-              </ul>
-            </aside>
-          </div>
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+          {/* Main 2D Canvas */}
           <div
-            aria-label="CAD layers"
-            className="flex shrink-0 flex-wrap gap-2 border-t border-slate-700 bg-slate-900 p-3"
+            data-testid="cad-canvas-host"
+            className="cad-canvas-host relative min-h-[320px] min-w-0 flex-1 overflow-hidden"
           >
-            {(['walls', 'openings', 'stairs', 'dimensions'] as const).map((layer) => (
-              <button
-                key={layer}
-                aria-pressed={layers[layer]}
-                onClick={() => setLayers((p) => ({ ...p, [layer]: !p[layer] }))}
-              >
-                {
+            <ArchitecturalCanvas
+              modelOnly
+              entityLayers={entityLayers}
+              disciplines={disciplines}
+              editor={editor}
+              snapEnabled
+              layers={layers}
+              fitRequest={0}
+            />
+
+            {/* Floating Layer Pill Bar (Pinned 16px above bottom-left) */}
+            <div
+              data-testid="cad-layer-pill-bar"
+              className="absolute bottom-4 left-4 z-20 flex flex-wrap items-center gap-1 p-1 rounded-full border border-slate-700/80 bg-slate-950/85 backdrop-blur-md shadow-2xl text-[11px]"
+            >
+              <span className="text-[9px] font-mono font-bold text-slate-400 uppercase px-2">Layers</span>
+              {(['walls', 'openings', 'stairs', 'dimensions'] as const).map((layer) => (
+                <button
+                  key={layer}
+                  type="button"
+                  aria-pressed={layers[layer]}
+                  onClick={() => setLayers((p) => ({ ...p, [layer]: !p[layer] }))}
+                  className={`px-2.5 py-1 rounded-full font-medium transition ${
+                    layers[layer]
+                      ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                  }`}
+                >
                   {
-                    walls: 'Walls',
-                    openings: 'Doors/Windows',
-                    stairs: 'Staircases',
-                    dimensions: 'Dimensions',
-                  }[layer]
-                }
-              </button>
-            ))}
-            {(['columns', 'beams', 'furniture'] as const).map((layer) => (
-              <button
-                key={layer}
-                aria-pressed={entityLayers[layer]}
-                onClick={() => setEntityLayers((p) => ({ ...p, [layer]: !p[layer] }))}
-              >
-                {layer[0]!.toUpperCase() + layer.slice(1)}
-              </button>
-            ))}
+                    {
+                      walls: 'Walls',
+                      openings: 'Doors/Windows',
+                      stairs: 'Staircases',
+                      dimensions: 'Dimensions',
+                    }[layer]
+                  }
+                </button>
+              ))}
+              {(['columns', 'beams', 'furniture'] as const).map((layer) => (
+                <button
+                  key={layer}
+                  type="button"
+                  aria-pressed={entityLayers[layer]}
+                  onClick={() => setEntityLayers((p) => ({ ...p, [layer]: !p[layer] }))}
+                  className={`px-2.5 py-1 rounded-full font-medium transition ${
+                    entityLayers[layer]
+                      ? 'bg-cyan-500 text-slate-950 font-bold shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                  }`}
+                >
+                  {layer[0]!.toUpperCase() + layer.slice(1)}
+                </button>
+              ))}
+            </div>
           </div>
-        </>
+
+          {/* Collapsible 300px Right Inspector Panel */}
+          {showInspector && (
+            <aside
+              data-testid="property-inspector-drawer"
+              className="w-[300px] shrink-0 border-l border-[#E2DDD5] bg-[#FFFFFF] p-4 overflow-y-auto text-xs text-[#181D23] shadow-lg animate-slideInRight"
+            >
+              <PropertyInspector editor={editor} embedded />
+              <div className="border-t border-[#E2DDD5] my-4 pt-3">
+                <h2 className="font-bold text-[#181D23]">Geometry Audit · Rev #{editor.building.version}</h2>
+                <p className={`my-2 text-xs font-semibold ${report.isValid ? 'text-emerald-700' : 'text-amber-700'}`}>
+                  {report.isValid ? '✓ INTERNAL GEOMETRY CHECK PASSED' : '⚠ CORRECTION REQUIRED'}
+                </p>
+                <p className="text-[11px] text-[#5C6672] font-mono">Planar delta: {report.planarDeltaMm2} mm²</p>
+                <div className="my-3 flex flex-wrap gap-1.5">
+                  {(
+                    ['rooms', 'walls', 'openings', 'stairs', 'dimensions', 'grid'] as WorkspaceLayer[]
+                  ).map((layer) => (
+                    <button
+                      key={layer}
+                      type="button"
+                      aria-pressed={layers[layer]}
+                      onClick={() =>
+                        setLayers((previous) => ({ ...previous, [layer]: !previous[layer] }))
+                      }
+                      className={`rounded px-2 py-0.5 text-[10px] font-mono ${
+                        layers[layer] ? 'bg-amber-100 text-[#B45309] font-bold' : 'bg-[#F7F5F0] text-[#5C6672]'
+                      }`}
+                    >
+                      {layer}
+                    </button>
+                  ))}
+                </div>
+                {report.errors.length > 0 && (
+                  <ul className="space-y-2 text-[11px] mt-2">
+                    {report.errors
+                      .filter((error) => !error.autoCorrected)
+                      .map((error, index) => (
+                        <li key={`${error.code}-${index}`} className="rounded border border-amber-200 bg-amber-50 p-2 text-amber-900">
+                          <strong>{error.code}</strong>
+                          <p className="mt-0.5">{error.description}</p>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+            </aside>
+          )}
+        </div>
       )}
     </section>
   );

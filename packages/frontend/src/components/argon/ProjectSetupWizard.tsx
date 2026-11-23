@@ -53,7 +53,7 @@ interface ProjectSetupWizardProps {
 export const ProjectSetupWizard: React.FC<ProjectSetupWizardProps> = ({
   onGenerate,
   onCancel,
-  onOpenDemo,
+  onOpenDemo: _onOpenDemo,
 }) => {
   const {
     currentStep,
@@ -77,7 +77,7 @@ export const ProjectSetupWizard: React.FC<ProjectSetupWizardProps> = ({
   };
 
   return (
-    <div className="argon-setup w-full h-full min-h-0 bg-argon-bg text-argon-text flex flex-col items-center justify-start p-4 sm:p-6 argon-scrollbar">
+    <div className="argon-wizard argon-setup w-full h-full min-h-0 bg-argon-bg text-argon-text flex flex-col items-center justify-start p-4 sm:p-6 argon-scrollbar">
       <div className="w-full max-w-4xl bg-argon-card border border-argon-border rounded-2xl shadow-md overflow-hidden flex flex-col my-auto">
         {/* Wizard Header Bar */}
         <div className="bg-argon-surface/90 border-b border-argon-border px-6 py-4.5 flex flex-wrap items-center justify-between gap-4">
@@ -98,20 +98,8 @@ export const ProjectSetupWizard: React.FC<ProjectSetupWizardProps> = ({
             </div>
           </div>
 
-          {/* Stepper Navigation & Fast Demo Action */}
+          {/* Stepper Navigation */}
           <div className="flex items-center gap-3">
-            {onOpenDemo && (
-              <button
-                type="button"
-                data-testid="wizard-open-demo-btn"
-                onClick={onOpenDemo}
-                className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black uppercase tracking-wider shadow-sm transition-all cursor-pointer"
-                title="Skip setup wizard and open the pre-configured Demo Architectural Project immediately"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Open Demo Project</span>
-              </button>
-            )}
             <ArgonStepper
               steps={steps}
               currentStep={currentStep}
@@ -143,16 +131,6 @@ export const ProjectSetupWizard: React.FC<ProjectSetupWizardProps> = ({
           </ArgonButton>
 
           <div className="flex items-center gap-3">
-            {onOpenDemo && (
-              <ArgonButton
-                variant="secondary"
-                size="md"
-                leftIcon={<Sparkles className="w-4 h-4 text-amber-500" />}
-                onClick={onOpenDemo}
-              >
-                Open Demo in Studio
-              </ArgonButton>
-            )}
             {currentStep < 4 ? (
               <ArgonButton
                 variant="primary"

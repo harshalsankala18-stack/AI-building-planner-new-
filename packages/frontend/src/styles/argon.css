@@ -3,16 +3,16 @@
 @tailwind utilities;
 
 :root {
-  --argon-bg: #F5F0E8;
-  --argon-surface: #EAE0D2;
-  --argon-card: #FFF9F0;
-  --argon-border: #D8CAB8;
-  --argon-text: #302820;
-  --argon-muted: #6F6257;
-  --argon-btn: #80644D;
-  --argon-btn-hover: #654B38;
-  --argon-accent: #B99270;
-  --argon-pass: #4A6B53;
+  --argon-bg: #F7F5F0;
+  --argon-surface: #FFFFFF;
+  --argon-card: #FFFFFF;
+  --argon-border: #E2DDD5;
+  --argon-text: #181D23;
+  --argon-muted: #5C6672;
+  --argon-btn: #B45309;
+  --argon-btn-hover: #92400E;
+  --argon-accent: #B45309;
+  --argon-pass: #15803D;
   --argon-warn: #C48A3F;
   --argon-error: #9E4738;
 }
@@ -21,6 +21,22 @@
   color-scheme: light;
   background-color: var(--argon-bg);
   color: var(--argon-text);
+}
+
+.argon-topbar {
+  height: 52px !important;
+  max-height: 52px !important;
+  min-height: 52px !important;
+  flex-wrap: nowrap !important;
+  white-space: nowrap !important;
+}
+
+.argon-contextbar {
+  height: 40px !important;
+  max-height: 40px !important;
+  min-height: 40px !important;
+  flex-wrap: nowrap !important;
+  white-space: nowrap !important;
 }
 
 .argon-shell select,
@@ -52,11 +68,11 @@
 }
 
 .argon-shell > header {
-  height: auto;
-  min-height: 3.5rem;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  padding-block: 0.5rem;
+  height: 52px;
+  max-height: 52px;
+  min-height: 52px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 .argon-shell nav {
