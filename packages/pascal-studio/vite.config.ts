@@ -22,6 +22,11 @@ export default defineConfig({
       'next/dist/shared/lib/image-config': path.resolve(__dirname, 'src/shims/next-image.tsx'),
       'next/dist/shared/lib/image-config-context.shared-runtime': path.resolve(__dirname, 'src/shims/next-image.tsx'),
       'next/dist/shared/lib/match-remote-pattern': path.resolve(__dirname, 'src/shims/next-image.tsx'),
+      'blob-stream': path.resolve(__dirname, 'src/shims/blob-stream.ts'),
+      'util': path.resolve(__dirname, 'src/shims/util.ts'),
+      'util/': path.resolve(__dirname, 'src/shims/util.ts'),
+      'stream': path.resolve(__dirname, 'src/shims/stream.ts'),
+      'stream/': path.resolve(__dirname, 'src/shims/stream.ts'),
     },
   },
   plugins: [
@@ -68,20 +73,6 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
     chunkSizeWarningLimit: 5000,
-    rollupOptions: {
-      output: {
-        manualChunks: (id) => {
-          if (id.includes('node_modules')) {
-            if (id.includes('three') || id.includes('@react-three')) {
-              return 'vendor-three';
-            }
-            if (id.includes('@pascal-app')) {
-              return 'vendor-pascal';
-            }
-            return 'vendor-framework';
-          }
-        },
-      },
-    },
+    rollupOptions: {},
   },
 });

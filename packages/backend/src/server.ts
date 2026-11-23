@@ -440,6 +440,31 @@ async function route(request: IncomingMessage, response: ServerResponse, deps: S
 
     // ── Static Asset Serving ──────────────────────────────────────────────────
     if (method === 'GET' && !url.pathname.startsWith('/api')) {
+      // 0. Static Icons & Materials for Pascal 3D Studio
+      if (url.pathname.startsWith('/icons/') || url.pathname.startsWith('/pascal-studio/icons/')) {
+        const iconName = path.basename(url.pathname);
+        const iconDir = resolveStaticDirectory('packages/pascal-studio/public/icons');
+        if (iconDir) {
+          const candidate = path.join(iconDir, iconName);
+          if (fs.existsSync(candidate) && serveStaticFile(candidate, response)) {
+            return;
+          }
+        }
+        const transparentWebp = Buffer.from(
+          'UklGRkAAAABXRUJQVlA4WAoAAAAQAAAAAAAAAAAAQUxQSAIAAAAAAFZQOCAYAAAAMAEAnQEqAQABAAFAJiWkAANwAP79NvgA',
+          'base64',
+        );
+        response.writeHead(200, { 'Content-Type': 'image/webp', 'Cache-Control': 'public, max-age=86400' });
+        response.end(transparentWebp);
+        return;
+      }
+
+      if (url.pathname.startsWith('/material/')) {
+        response.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Cache-Control': 'public, max-age=86400' });
+        response.end(Buffer.alloc(0));
+        return;
+      }
+
       // 1. Pascal 3D Studio Sub-App
       if (url.pathname === '/pascal-studio' || url.pathname.startsWith('/pascal-studio/')) {
         const studioDist =

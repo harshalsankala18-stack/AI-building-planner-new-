@@ -12,6 +12,7 @@ import {
   type StudioToHostMessage,
 } from '@ai-floor-planner/interop/bridge';
 import { createStarterScene } from './starter-scene';
+import { ArchitecturalEnvironment } from './scene/ArchitecturalEnvironment';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -488,6 +489,7 @@ export const App: React.FC = () => {
             <Editor
               onLoad={handleEditorLoad}
               onSave={handleEditorSave}
+              viewerSceneSlot={<ArchitecturalEnvironment />}
             />
           )
         ) : (
