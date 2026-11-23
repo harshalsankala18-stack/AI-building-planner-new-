@@ -10,6 +10,7 @@
     "node": ">=20.0.0"
   },
   "scripts": {
+    "generate:assets": "node scripts/generate-furniture-glbs.mjs",
     "build": "turbo run build",
     "build:all": "node scripts/build-all.mjs",
     "dev": "turbo run dev",

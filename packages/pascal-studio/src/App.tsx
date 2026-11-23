@@ -1,8 +1,8 @@
 import React, { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import { loadPlugin, useScene } from '@pascal-app/core';
 import { builtinPlugin } from '@pascal-app/nodes';
-import { Editor } from '@pascal-app/editor';
-import { Viewer } from '@pascal-app/viewer';
+import { Editor, useEditor } from '@pascal-app/editor';
+import { Viewer, useViewer } from '@pascal-app/viewer';
 import { convertIfcToPascal } from '@pascal-app/ifc-converter';
 import {
   isHostMessage,
@@ -164,6 +164,27 @@ export const App: React.FC = () => {
             if (message.readOnly !== undefined) {
               useScene.getState().setReadOnly(message.readOnly);
             }
+
+            // Stage C: Configure bright interior lighting and default cutaway view
+            try {
+              useViewer.getState().setProjectPresentation({
+                lighting: {
+                  ambient: { color: '#ffffff', intensity: 0.85 },
+                  hemi: { sky: '#ffffff', ground: '#e0e0e0', intensity: 0.75 },
+                },
+                exposure: 1.15,
+              } as any);
+              useViewer.getState().setWallMode('cutaway');
+              // Auto-hide ceilings in cutaway mode so interior is bright and clearly visible
+              for (const n of Object.values(nodes)) {
+                if ((n as any).type === 'ceiling') {
+                  (n as any).visible = false;
+                }
+              }
+            } catch (e) {
+              console.warn('Could not initialize bright viewer presentation:', e);
+            }
+
             sendToHost({
               type: 'SCENE_LOADED',
               nodeCount: Object.keys(nodes).length,
@@ -182,6 +203,117 @@ export const App: React.FC = () => {
               if (node && (state as any).setSelectedNodeId) {
                 (state as any).setSelectedNodeId(levelId);
               }
+              try {
+                useViewer.getState().setSelection({ levelId });
+                if (message.isolate !== false) {
+                  useViewer.getState().setLevelMode('solo');
+                }
+              } catch (e) {
+                console.warn('Error setting level selection on viewer:', e);
+              }
+            }
+            break;
+          }
+
+          case 'SET_LEVEL_MODE': {
+            try {
+              useViewer.getState().setLevelMode(message.mode);
+            } catch (e) {
+              console.warn('Error setting level mode:', e);
+            }
+            break;
+          }
+
+          case 'SET_WALL_MODE': {
+            try {
+              useViewer.getState().setWallMode(message.mode);
+              const state = useScene.getState();
+              const shouldHideCeilings = message.mode === 'cutaway' || message.mode === 'down';
+              let modified = false;
+              for (const n of Object.values(state.nodes)) {
+                if (n.type === 'ceiling') {
+                  (n as any).visible = !shouldHideCeilings;
+                  modified = true;
+                }
+              }
+              if (modified) {
+                useScene.setState({ nodes: { ...state.nodes } });
+              }
+            } catch (e) {
+              console.warn('Error setting wall mode:', e);
+            }
+            break;
+          }
+
+          case 'SET_WALKTHROUGH_MODE': {
+            try {
+              if (message.enabled) {
+                useViewer.getState().setWallMode('up');
+                const state = useScene.getState();
+                for (const n of Object.values(state.nodes)) {
+                  if (n.type === 'ceiling') {
+                    (n as any).visible = true;
+                  }
+                }
+                useScene.setState({ nodes: { ...state.nodes } });
+                useViewer.getState().setWalkthroughMovement('walk');
+                useViewer.getState().setWalkthroughInputMode('desktop');
+                useViewer.getState().setWalkthroughMode(true);
+                try {
+                  useEditor.getState().setFirstPersonMode(true);
+                } catch {
+                  // ignore
+                }
+              } else {
+                useViewer.getState().setWalkthroughMode(false);
+                try {
+                  useEditor.getState().setFirstPersonMode(false);
+                } catch {
+                  // ignore
+                }
+                useViewer.getState().setWallMode('cutaway');
+              }
+            } catch (e) {
+              console.warn('Error toggling walkthrough mode:', e);
+            }
+            break;
+          }
+
+          case 'SET_MEASURE_MODE': {
+            try {
+              useViewer.getState().setShowMeasurements(message.enabled);
+            } catch (e) {
+              console.warn('Error setting measure mode:', e);
+            }
+            break;
+          }
+
+          case 'UPDATE_NODE': {
+            const { nodeId, patch } = message;
+            const state = useScene.getState();
+            const node = state.nodes[nodeId];
+            if (node) {
+              state.nodes[nodeId] = { ...node, ...patch } as any;
+              state.dirtyNodes = new Set([...(state.dirtyNodes ?? []), nodeId]);
+              useScene.setState({ nodes: { ...state.nodes }, dirtyNodes: state.dirtyNodes });
+            }
+            break;
+          }
+
+          case 'DELETE_NODE': {
+            const { nodeId } = message;
+            const state = useScene.getState();
+            const node = state.nodes[nodeId];
+            if (node) {
+              const newNodes = { ...state.nodes };
+              delete newNodes[nodeId];
+              if (node.parentId && newNodes[node.parentId]) {
+                const parent = newNodes[node.parentId] as any;
+                if (Array.isArray(parent.children)) {
+                  parent.children = parent.children.filter((cid: string) => cid !== nodeId);
+                }
+              }
+              useScene.setState({ nodes: newNodes, dirtyNodes: new Set([...(state.dirtyNodes ?? []), nodeId]) });
             }
             break;
           }
@@ -260,10 +392,35 @@ export const App: React.FC = () => {
       }
     });
 
+    // Track selection changes and notify host
+    let prevSelectedId: string | null = null;
+    const unsubscribeSelection = useViewer.subscribe((viewerState) => {
+      const selIds = viewerState.selection?.selectedIds ?? [];
+      const currentId = selIds[0] ?? null;
+      if (currentId !== prevSelectedId) {
+        prevSelectedId = currentId;
+        if (currentId) {
+          const node = useScene.getState().nodes[currentId];
+          sendToHost({
+            type: 'NODE_SELECTED',
+            nodeId: currentId,
+            nodeType: node?.type,
+            nodeData: node,
+          });
+        } else {
+          sendToHost({
+            type: 'NODE_SELECTED',
+            nodeId: null,
+          });
+        }
+      }
+    });
+
     return () => {
       mounted = false;
       window.removeEventListener('message', handleMessage);
       unsubscribeDirty();
+      unsubscribeSelection();
       if (mutationDebounceTimerRef.current) {
         clearTimeout(mutationDebounceTimerRef.current);
       }

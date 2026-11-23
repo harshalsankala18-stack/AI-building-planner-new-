@@ -8,6 +8,7 @@ import {
   Check,
   RefreshCw,
   HardDrive,
+  Sparkles,
 } from 'lucide-react';
 
 export interface SettingsModalProps {
@@ -229,6 +230,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                 </div>
                 <span className="font-mono font-bold text-[#181D23]">
                   {capabilities?.queueMode ? String(capabilities.queueMode).toUpperCase() : 'IN-PROCESS LOCAL'}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-[#5C6672]">
+                  <Sparkles className="h-4 w-4 text-sky-600" />
+                  <span>AI Orchestration Engine:</span>
+                </div>
+                <span className="font-mono font-bold text-sky-600">
+                  {capabilities?.aiProvider ? String(capabilities.aiProvider).toUpperCase() : 'RULE-BASED (DETERMINISTIC)'}
                 </span>
               </div>
 

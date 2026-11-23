@@ -119,13 +119,20 @@ export function pascalToCanonicalPatch(
       let posX = 0;
       let posY = 0;
       if (parentWallNode && parentWallNode.start && parentWallNode.end) {
-        const offsetRatio = dn.position ?? 0.5;
+        let ratio = 0.5;
+        if (Array.isArray(dn.position)) {
+          const u = dn.position[0];
+          const wallLen = Math.hypot(parentWallNode.end[0] - parentWallNode.start[0], parentWallNode.end[1] - parentWallNode.start[1]);
+          ratio = wallLen > 0 ? Math.max(0, Math.min(1, u / wallLen)) : 0.5;
+        } else if (typeof dn.position === 'number') {
+          ratio = dn.position;
+        }
         posX = Math.round(
-          (parentWallNode.start[0] + (parentWallNode.end[0] - parentWallNode.start[0]) * offsetRatio) *
+          (parentWallNode.start[0] + (parentWallNode.end[0] - parentWallNode.start[0]) * ratio) *
             1000,
         );
         posY = Math.round(
-          (parentWallNode.start[1] + (parentWallNode.end[1] - parentWallNode.start[1]) * offsetRatio) *
+          (parentWallNode.start[1] + (parentWallNode.end[1] - parentWallNode.start[1]) * ratio) *
             1000,
         );
       }
@@ -164,13 +171,20 @@ export function pascalToCanonicalPatch(
       let posX = 0;
       let posY = 0;
       if (parentWallNode && parentWallNode.start && parentWallNode.end) {
-        const offsetRatio = wn.position ?? 0.5;
+        let ratio = 0.5;
+        if (Array.isArray(wn.position)) {
+          const u = wn.position[0];
+          const wallLen = Math.hypot(parentWallNode.end[0] - parentWallNode.start[0], parentWallNode.end[1] - parentWallNode.start[1]);
+          ratio = wallLen > 0 ? Math.max(0, Math.min(1, u / wallLen)) : 0.5;
+        } else if (typeof wn.position === 'number') {
+          ratio = wn.position;
+        }
         posX = Math.round(
-          (parentWallNode.start[0] + (parentWallNode.end[0] - parentWallNode.start[0]) * offsetRatio) *
+          (parentWallNode.start[0] + (parentWallNode.end[0] - parentWallNode.start[0]) * ratio) *
             1000,
         );
         posY = Math.round(
-          (parentWallNode.start[1] + (parentWallNode.end[1] - parentWallNode.start[1]) * offsetRatio) *
+          (parentWallNode.start[1] + (parentWallNode.end[1] - parentWallNode.start[1]) * ratio) *
             1000,
         );
       }
@@ -325,14 +339,18 @@ export function pascalToCanonicalPatch(
           inItem.metadata?.mountType === 'ceiling' ||
           ceilingIds.has(inItem.parentId) ||
           inItem.asset?.attachTo === 'ceiling';
-        const posX = Math.round(safeNum(inItem.position?.[0], 0) * 1000);
-        const elevationY = Math.round(safeNum(inItem.position?.[1], isCeiling ? 2680 : 0) * 1000);
-        const posY = Math.round(safeNum(inItem.position?.[2], 0) * 1000);
 
         const assetDim = inItem.asset?.dimensions ?? [1, 0.8, 0.8];
         const widthMm = Math.round(safeNum(assetDim[0], 1) * 1000);
         const heightMm = Math.round(safeNum(assetDim[1], 0.8) * 1000);
         const depthMm = Math.round(safeNum(assetDim[2], 0.8) * 1000);
+
+        // Convert center-based Pascal position back to canonical min bounds
+        const rawCenterX = safeNum(inItem.position?.[0], 0);
+        const rawCenterY = safeNum(inItem.position?.[2], 0);
+        const posX = Math.round((rawCenterX - (widthMm / 2000)) * 1000);
+        const elevationY = Math.round(safeNum(inItem.position?.[1], isCeiling ? 2680 : 0) * 1000);
+        const posY = Math.round((rawCenterY - (depthMm / 2000)) * 1000);
 
         const yawRad = inItem.rotation?.[1] ?? 0;
         const rotationDeg = Math.round((yawRad * 180) / Math.PI);

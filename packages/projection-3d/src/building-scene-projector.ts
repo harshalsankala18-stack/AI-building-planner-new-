@@ -352,7 +352,7 @@ export function projectBuildingScene(building: Building): BuildingScene {
         ...f.windows.map((o) => ({
           ...o,
           isWindow: true,
-          sill: o.sillHeightMm ?? o.sillHeight,
+          sill: o.sillHeight ?? o.sillHeightMm ?? 0,
         })),
       ].filter((o) => o.wallId === wall.id);
       const cuts: Polygon[] = [];

@@ -1,7 +1,11 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { configureViewer } from '@pascal-app/viewer';
 import App from './App';
 import './index.css';
+
+// Configure viewer assets base URL to empty string so local /pascal-studio/assets/ are resolved directly
+configureViewer({ assetsBaseUrl: '' });
 
 // Global error handlers to display any uncaught runtime exceptions visibly
 window.onerror = (message, source, lineno, colno, error) => {

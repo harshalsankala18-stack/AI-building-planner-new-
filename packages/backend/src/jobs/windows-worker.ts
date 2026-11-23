@@ -18,6 +18,7 @@ import { resolveServiceConfig } from '../env.js';
 export async function startWindowsWorker(): Promise<void> {
   const env = process.env;
   const config = resolveServiceConfig(env);
+  void config;
   const storage = createObjectStorageFromEnv(env);
   const repository = createProjectRepositoryFromEnv(env);
 
@@ -69,7 +70,8 @@ export async function startWindowsWorker(): Promise<void> {
           case 'autocad_dwg_export': {
             await repository.updateJob(jobId, { progress: 50 });
             // If AutoCAD is available, runner executes native conversion
-            const runner = new AccoreConsoleRunner(accoreConsolePath);
+            const runner = new AccoreConsoleRunner(accoreConsolePath ? { binaryPath: accoreConsolePath } : {});
+            void runner;
             const isInstalled = Boolean(accoreConsolePath);
 
             result = {
@@ -96,6 +98,7 @@ export async function startWindowsWorker(): Promise<void> {
           case 'blender_procedural_render': {
             await repository.updateJob(jobId, { progress: 70 });
             const runner = new BlenderRunner(blenderPath);
+            void runner;
             result = {
               jobId,
               renderKey: `renders/${data.projectId}/${jobId}.png`,

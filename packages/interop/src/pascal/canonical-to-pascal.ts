@@ -58,9 +58,12 @@ export function toPascalId(
     | 'sseg'
     | 'ceiling'
     | 'item',
-  rawId: string,
+  rawId?: string | null,
 ): string {
-  const sanitized = rawId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  if (!rawId) {
+    return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+  const sanitized = String(rawId).replace(/[^a-zA-Z0-9_-]/g, '_');
   if (sanitized.startsWith(`${prefix}_`)) {
     return sanitized;
   }
@@ -318,35 +321,92 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
         const rawS = wallLen > 0 ? (vx * dx + vy * dy) / wallLen : 0;
         const s = safeNum(rawS, 0);
         const doorWidthM = safeNum(door.width, 900) / 1000;
+        const doorHeightM = safeNum(door.height, 2100) / 1000;
         const clampedS = wallLen > 0 ? Math.max(0.1, Math.min(Math.max(0.1, wallLen - doorWidthM - 0.1), s)) : 0;
+        const centerS = clampedS + doorWidthM / 2;
 
         let pascalDoorType: 'hinged' | 'double' | 'sliding' | 'pocket' | 'french' = 'hinged';
-        if (door.category === 'balcony_sliding_glass' || door.type === DoorType.Sliding) {
+        let slidingStyle: 'patio' | 'bypass' | undefined = undefined;
+        let leafCount: 1 | 2 = 1;
+        let handleStyle: 'lever' | 'lever-curved' | 'knob' | 'bar' | 'plate' = 'lever';
+        let segments: any[] = [
+          { type: 'panel', heightRatio: 1, columnRatios: [1], dividerThickness: 0.03, panelDepth: 0.012, panelInset: 0.04 },
+        ];
+
+        const cat = door.category ?? '';
+        if (cat === 'balcony_sliding_glass' || door.type === DoorType.Sliding) {
           pascalDoorType = 'sliding';
-        } else if (door.category === 'pocket_sliding') {
-          pascalDoorType = 'pocket';
-        } else if (door.category === 'french_double_glass') {
+          slidingStyle = 'patio';
+          leafCount = 2;
+          handleStyle = 'bar';
+          segments = [
+            { type: 'glass', heightRatio: 1, columnRatios: [1], dividerThickness: 0.03, panelDepth: 0.01, panelInset: 0.04 },
+          ];
+        } else if (cat === 'french_double_glass') {
           pascalDoorType = 'french';
-        } else if (
-          door.category === 'main_entry_double' ||
-          door.category === 'interior_double' ||
-          door.type === DoorType.Double
-        ) {
+          leafCount = 2;
+          handleStyle = 'lever';
+          segments = [
+            { type: 'glass', heightRatio: 0.76, columnRatios: [1, 1], dividerThickness: 0.025, panelDepth: 0.01, panelInset: 0.04 },
+            { type: 'panel', heightRatio: 0.24, columnRatios: [1], dividerThickness: 0.03, panelDepth: 0.012, panelInset: 0.035 },
+          ];
+        } else if (cat === 'main_entry_double' || cat === 'interior_double' || door.type === DoorType.Double) {
           pascalDoorType = 'double';
+          leafCount = 2;
+          handleStyle = 'lever';
+          segments = [
+            { type: 'panel', heightRatio: 1, columnRatios: [1], dividerThickness: 0.03, panelDepth: 0.012, panelInset: 0.04 },
+          ];
+        } else if (cat === 'bedroom_hinged') {
+          pascalDoorType = 'hinged';
+          leafCount = 1;
+          handleStyle = 'lever';
+          segments = [
+            { type: 'panel', heightRatio: 0.45, columnRatios: [1], dividerThickness: 0.03, panelDepth: 0.01, panelInset: 0.04 },
+            { type: 'panel', heightRatio: 0.55, columnRatios: [1], dividerThickness: 0.03, panelDepth: 0.01, panelInset: 0.04 },
+          ];
+        } else if (cat === 'pocket_sliding') {
+          pascalDoorType = 'pocket';
+          leafCount = 1;
+          handleStyle = 'bar';
+          segments = [
+            { type: 'panel', heightRatio: 1, columnRatios: [1], dividerThickness: 0.03, panelDepth: 0.012, panelInset: 0.04 },
+          ];
+        } else {
+          // main_entry_single / default
+          pascalDoorType = 'hinged';
+          leafCount = 1;
+          handleStyle = 'lever';
+          segments = [
+            { type: 'panel', heightRatio: 1, columnRatios: [1], dividerThickness: 0.03, panelDepth: 0.012, panelInset: 0.04 },
+          ];
         }
+
+        const wallThicknessM = safeNum(hostWall.thickness, 230) / 1000;
 
         const doorNode = DoorNode.parse({
           id: doorId,
           name: `Door ${door.id}`,
           parentId: pascalWallId,
           wallId: pascalWallId,
-          position: [safeNum(clampedS, 0), 0, 0],
+          position: [safeNum(centerS, 0), safeNum(doorHeightM / 2, 1.05), 0],
           width: doorWidthM,
-          height: safeNum(door.height, 2100) / 1000,
+          height: doorHeightM,
           doorCategory: 'interior',
           doorType: pascalDoorType,
-          leafCount: door.leafCount ?? (pascalDoorType === 'double' || pascalDoorType === 'french' ? 2 : 1),
+          slidingStyle,
+          leafCount,
           swingDirection: door.swingDirection === SwingDirection.Outward ? 'outward' : 'inward',
+          frameThickness: 0.04,
+          frameDepth: wallThicknessM,
+          threshold: true,
+          thresholdHeight: 0.02,
+          casingFaceA: true,
+          casingFaceB: true,
+          casingWidth: 0.05,
+          handle: true,
+          handleStyle,
+          segments,
           metadata: {
             canonicalId: door.id,
             category: door.category,
@@ -384,7 +444,9 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
         const rawS = wallLen > 0 ? (vx * dx + vy * dy) / wallLen : 0;
         const s = safeNum(rawS, 0);
         const winWidthM = safeNum(win.width, 1200) / 1000;
+        const winHeightM = safeNum(win.height, 1200) / 1000;
         const clampedS = wallLen > 0 ? Math.max(0.1, Math.min(Math.max(0.1, wallLen - winWidthM - 0.1), s)) : 0;
+        const centerS = clampedS + winWidthM / 2;
         const sillM = safeNum(win.sillHeight, 900) / 1000;
 
         let pascalWinType: 'casement' | 'sliding' | 'fixed' | 'louvered' = 'casement';
@@ -405,12 +467,15 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
           name: `Window ${win.id}`,
           parentId: pascalWallId,
           wallId: pascalWallId,
-          position: [safeNum(clampedS, 0), safeNum(sillM, 0.9), 0],
+          position: [safeNum(centerS, 0), safeNum(sillM + winHeightM / 2, 1.5), 0],
           width: winWidthM,
-          height: safeNum(win.height, 1200) / 1000,
+          height: winHeightM,
           sillHeight: safeNum(sillM, 0.9),
           windowType: pascalWinType,
           sill: true,
+          casingFaceA: true,
+          casingFaceB: true,
+          casingWidth: 0.05,
           metadata: {
             canonicalId: win.id,
             category: win.category,
@@ -607,7 +672,7 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
         id: itemId,
         name: item.label ?? (item.kind ? String(item.kind).replace(/_/g, ' ') : 'Interior Element'),
         parentId,
-        position: [xM, elevationM, yM],
+        position: [xM + wM / 2, elevationM, yM + dM / 2],
         rotation: [0, rotRad, 0],
         scale: [1, 1, 1],
         asset: {
@@ -615,7 +680,7 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
           category: item.category ?? 'furniture',
           name: item.label ?? 'Item',
           thumbnail: '',
-          src: `asset://library/${item.kind ?? 'item'}`,
+          src: `/pascal-studio/assets/furniture/${item.kind ?? 'item'}.glb`,
           dimensions: [wM, hM, dM],
           attachTo: isCeiling ? 'ceiling' : item.mountType === 'wall' ? 'wall' : undefined,
           source: 'library',
@@ -643,14 +708,36 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
 
     if (slabPoints.length >= 3) {
       const ceilingPolygon: [number, number][] = slabPoints.map((p) => [p[0], p[1]]);
-      const ceilingHoles: [number, number][][] = slabHoles.map((h) => h.map((p) => [p[0], p[1]]));
+      const ceilingHoles: [number, number][][] = [];
+      const hasNextFloor = building.floors.some(f => f.level === floor.level + 1);
+      const ascendingStairs = floor.stairs ?? [];
+      if (hasNextFloor && ascendingStairs.length > 0) {
+        for (const st of ascendingStairs) {
+          if (st.boundary?.points && st.boundary.points.length >= 3) {
+            ceilingHoles.push(
+              st.boundary.points.map(p => [safeNum(p.x) / 1000, safeNum(p.y) / 1000] as [number, number]),
+            );
+          } else {
+            const sx = safeNum(st.x, 0) / 1000;
+            const sy = safeNum(st.y, 0) / 1000;
+            const sw = safeNum(st.width, 2400) / 1000;
+            const sl = safeNum(st.length, 4800) / 1000;
+            ceilingHoles.push([
+              [sx, sy],
+              [sx + sw, sy],
+              [sx + sw, sy + sl],
+              [sx, sy + sl],
+            ]);
+          }
+        }
+      }
 
       const ceilingNode = CeilingNode.parse({
         id: ceilingId,
         name: `${floor.name} Ceiling`,
         parentId: levelId,
         polygon: ceilingPolygon,
-        holes: ceilingHoles,
+        holes: ceilingHoles.length > 0 ? ceilingHoles : undefined,
         height: floorHeightM,
         children: ceilingChildren,
         metadata: {

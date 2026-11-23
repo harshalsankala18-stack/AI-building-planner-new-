@@ -60,17 +60,25 @@ export async function handleJobRoutes(
       ? 'queued_remote'
       : 'unavailable';
 
+    const hasGemini = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim().length > 0);
+    const hasOpenAi = Boolean(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim().length > 0);
+    const aiProvider = hasGemini ? 'gemini' : hasOpenAi ? 'openai' : 'rule-based';
+
     sendJson(response, 200, {
       status: 'ok',
       storageProvider: deps.storage.providerName,
       databaseProvider: deps.repository.providerName,
       queueMode: deps.jobQueue.mode,
       workerRole: deps.workerRole ?? process.env.WORKER_ROLE ?? 'all',
+      aiProvider,
+      geminiConfigured: hasGemini,
+      openaiConfigured: hasOpenAi,
       capabilities: {
         windowsCadRunner: windowsCadStatus,
         etabsRunner: etabsStatus,
         blenderRunner: blenderStatus,
         linuxAiWorker: 'local',
+        aiEngine: aiProvider,
       },
     });
     return true;

@@ -15,6 +15,10 @@ console.log('  AI Floor Planner SaaS — Unified Production Build Pipeline     '
 console.log('================================================================');
 
 try {
+  // 0. Ensure 3D PBR furniture assets are generated
+  console.log('\n[0/6] Generating PBR 3D furniture & lighting assets...');
+  run('node scripts/generate-furniture-glbs.mjs');
+
   // 1. Build @ai-floor-planner/interop
   console.log('\n[1/6] Building @ai-floor-planner/interop (TypeScript library)...');
   run('pnpm --filter @ai-floor-planner/interop build');

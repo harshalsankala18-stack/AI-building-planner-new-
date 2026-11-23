@@ -35,13 +35,50 @@ export interface SelectLevelMessage {
   isolate?: boolean;
 }
 
+export interface SetLevelModeMessage {
+  type: 'SET_LEVEL_MODE';
+  mode: 'solo' | 'stacked' | 'exploded' | 'manual';
+}
+
+export interface SetWallModeMessage {
+  type: 'SET_WALL_MODE';
+  mode: 'up' | 'cutaway' | 'down' | 'translucent';
+}
+
+export interface SetWalkthroughModeMessage {
+  type: 'SET_WALKTHROUGH_MODE';
+  enabled: boolean;
+}
+
+export interface SetMeasureModeMessage {
+  type: 'SET_MEASURE_MODE';
+  enabled: boolean;
+}
+
+export interface UpdateNodeMessage {
+  type: 'UPDATE_NODE';
+  nodeId: string;
+  patch: Record<string, any>;
+}
+
+export interface DeleteNodeMessage {
+  type: 'DELETE_NODE';
+  nodeId: string;
+}
+
 export type HostToStudioMessage =
   | LoadSceneMessage
   | RequestSaveMessage
   | ImportIfcBufferMessage
   | SetViewModeMessage
   | PingMessage
-  | SelectLevelMessage;
+  | SelectLevelMessage
+  | SetLevelModeMessage
+  | SetWallModeMessage
+  | SetWalkthroughModeMessage
+  | SetMeasureModeMessage
+  | UpdateNodeMessage
+  | DeleteNodeMessage;
 
 export interface StudioReadyMessage {
   type: 'STUDIO_READY';
@@ -83,6 +120,13 @@ export interface SceneMutatedMessage {
   nodeCount: number;
 }
 
+export interface NodeSelectedMessage {
+  type: 'NODE_SELECTED';
+  nodeId: string | null;
+  nodeType?: string;
+  nodeData?: any;
+}
+
 export type StudioToHostMessage =
   | StudioReadyMessage
   | SceneLoadedMessage
@@ -90,7 +134,8 @@ export type StudioToHostMessage =
   | SceneSavedPayloadMessage
   | IfcImportedMessage
   | StudioErrorMessage
-  | SceneMutatedMessage;
+  | SceneMutatedMessage
+  | NodeSelectedMessage;
 
 const HOST_MESSAGE_TYPES: ReadonlySet<string> = new Set<HostToStudioMessage['type']>([
   'LOAD_SCENE',
@@ -99,6 +144,12 @@ const HOST_MESSAGE_TYPES: ReadonlySet<string> = new Set<HostToStudioMessage['typ
   'SET_VIEW_MODE',
   'PING',
   'SELECT_LEVEL',
+  'SET_LEVEL_MODE',
+  'SET_WALL_MODE',
+  'SET_WALKTHROUGH_MODE',
+  'SET_MEASURE_MODE',
+  'UPDATE_NODE',
+  'DELETE_NODE',
 ]);
 
 const STUDIO_MESSAGE_TYPES: ReadonlySet<string> = new Set<StudioToHostMessage['type']>([
@@ -109,6 +160,7 @@ const STUDIO_MESSAGE_TYPES: ReadonlySet<string> = new Set<StudioToHostMessage['t
   'IFC_IMPORTED',
   'STUDIO_ERROR',
   'SCENE_MUTATED',
+  'NODE_SELECTED',
 ]);
 
 export function isHostMessage(data: unknown): data is HostToStudioMessage {

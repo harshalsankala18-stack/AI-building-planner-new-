@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import type { Building } from '@ai-floor-planner/core';
+import type { Building, Door, Window, CanonicalFurnitureItem } from '@ai-floor-planner/core';
+import { SwingDirection } from '@ai-floor-planner/core';
 import {
   AlertTriangle,
   Boxes,
@@ -7,14 +8,21 @@ import {
   ChevronDown,
   ChevronUp,
   FileUp,
+  Footprints,
   Loader2,
   RotateCcw,
+  Ruler,
   Save,
+  Sliders,
   Sparkles,
 } from 'lucide-react';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { Ai3DEditDrawer } from './Ai3DEditDrawer';
 import { ElementsCatalogDrawer, type CatalogPlacementItem } from './ElementsCatalogDrawer';
+import {
+  ElementPropertiesInspector,
+  type SelectedNodeInfo,
+} from './ElementPropertiesInspector';
 import {
   isStudioMessage,
   isValidBridgeOrigin,
@@ -50,6 +58,12 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
   const [isCatalogOpen, setIsCatalogOpen] = useState(false);
+  const [isPropertiesOpen, setIsPropertiesOpen] = useState(false);
+  const [selectedNode, setSelectedNode] = useState<SelectedNodeInfo | null>(null);
+  const [levelMode, setLevelMode] = useState<'solo' | 'stacked' | 'exploded'>('solo');
+  const [wallMode, setWallMode] = useState<'cutaway' | 'up'>('cutaway');
+  const [walkthroughActive, setWalkthroughActive] = useState(false);
+  const [measureActive, setMeasureActive] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [warningsExpanded, setWarningsExpanded] = useState(false);
@@ -168,6 +182,30 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
 
         case 'SCENE_LOADED': {
           setStatusMessage(`Scene loaded (${message.nodeCount} nodes)`);
+          // Default: Isolate active floor + Cutaway walls
+          if (activeFloorId) {
+            postToStudio({
+              type: 'SELECT_LEVEL',
+              levelId: `level_${activeFloorId.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+              isolate: levelMode === 'solo',
+            });
+          }
+          postToStudio({
+            type: 'SET_WALL_MODE',
+            mode: wallMode,
+          });
+          break;
+        }
+
+        case 'NODE_SELECTED': {
+          if (message.nodeId) {
+            setSelectedNode({
+              id: message.nodeId,
+              type: message.nodeType || '',
+              data: message.nodeData,
+            });
+            setIsPropertiesOpen(true);
+          }
           break;
         }
 
@@ -236,7 +274,164 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [projectId, loadSceneFromBackend]);
+  }, [projectId, loadSceneFromBackend, activeFloorId, levelMode, wallMode]);
+
+  const handleToggleLevelMode = (mode: 'solo' | 'stacked' | 'exploded') => {
+    setLevelMode(mode);
+    postToStudio({ type: 'SET_LEVEL_MODE', mode });
+    if (mode === 'solo' && activeFloorId) {
+      postToStudio({
+        type: 'SELECT_LEVEL',
+        levelId: `level_${activeFloorId.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+        isolate: true,
+      });
+    }
+  };
+
+  const handleToggleWallMode = (mode: 'cutaway' | 'up') => {
+    setWallMode(mode);
+    postToStudio({ type: 'SET_WALL_MODE', mode });
+  };
+
+  const handleToggleWalkthrough = () => {
+    setWalkthroughActive((prev) => {
+      const next = !prev;
+      postToStudio({ type: 'SET_WALKTHROUGH_MODE', enabled: next });
+      setStatusMessage(next ? 'First-person Walk Inside active (WASD + mouse, Esc/V to exit)' : 'Exited Walk Inside mode');
+      return next;
+    });
+  };
+
+  const handleToggleMeasure = () => {
+    setMeasureActive((prev) => {
+      const next = !prev;
+      postToStudio({ type: 'SET_MEASURE_MODE', enabled: next });
+      setStatusMessage(next ? '3D Tape Measure active (Click two points to measure)' : 'Measure tool deactivated');
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === 'v' || e.key === 'V') {
+        e.preventDefault();
+        handleToggleWalkthrough();
+      } else if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        handleToggleMeasure();
+      } else if (e.key === 'Escape') {
+        if (walkthroughActive) {
+          handleToggleWalkthrough();
+        } else if (isPropertiesOpen) {
+          setIsPropertiesOpen(false);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [walkthroughActive, isPropertiesOpen]);
+
+  const handleUpdateDoor = (doorId: string, updates: Partial<Door>) => {
+    if (!building) return;
+    const updatedFloors = building.floors.map((floor) => ({
+      ...floor,
+      doors: floor.doors.map((d) => (d.id === doorId ? { ...d, ...updates } : d)),
+    }));
+    const updatedBuilding = { ...building, floors: updatedFloors };
+    onBuildingUpdate?.(updatedBuilding);
+    setIsDirty(true);
+
+    const pascalDoorId = `door_${doorId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    postToStudio({
+      type: 'UPDATE_NODE',
+      nodeId: pascalDoorId,
+      patch: {
+        width: updates.width !== undefined ? updates.width / 1000 : undefined,
+        height: updates.height !== undefined ? updates.height / 1000 : undefined,
+        swingDirection: updates.swingDirection === SwingDirection.Outward ? 'outward' : 'inward',
+      },
+    });
+  };
+
+  const handleUpdateWindow = (winId: string, updates: Partial<Window>) => {
+    if (!building) return;
+    const updatedFloors = building.floors.map((floor) => ({
+      ...floor,
+      windows: floor.windows.map((w) => (w.id === winId ? { ...w, ...updates } : w)),
+    }));
+    const updatedBuilding = { ...building, floors: updatedFloors };
+    onBuildingUpdate?.(updatedBuilding);
+    setIsDirty(true);
+
+    const pascalWinId = `window_${winId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    postToStudio({
+      type: 'UPDATE_NODE',
+      nodeId: pascalWinId,
+      patch: {
+        width: updates.width !== undefined ? updates.width / 1000 : undefined,
+        height: updates.height !== undefined ? updates.height / 1000 : undefined,
+        sillHeight: updates.sillHeight !== undefined ? updates.sillHeight / 1000 : undefined,
+      },
+    });
+  };
+
+  const handleUpdateFurniture = (itemId: string, updates: Partial<CanonicalFurnitureItem>) => {
+    if (!building) return;
+    const updatedFloors = building.floors.map((floor) => ({
+      ...floor,
+      furniture: floor.furniture?.map((f) => (f.id === itemId ? { ...f, ...updates } : f)) ?? [],
+    }));
+    const updatedBuilding = { ...building, floors: updatedFloors };
+    onBuildingUpdate?.(updatedBuilding);
+    setIsDirty(true);
+
+    const pascalItemId = `item_${itemId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    const patch: Record<string, any> = {};
+    if (updates.elevationMm !== undefined) {
+      patch.position = [undefined, updates.elevationMm / 1000, undefined];
+    }
+    if (updates.rotationDeg !== undefined) {
+      patch.rotation = [0, (updates.rotationDeg * Math.PI) / 180, 0];
+    }
+    if (updates.kind !== undefined) {
+      patch.asset = { id: updates.kind, src: `/pascal-studio/assets/furniture/${updates.kind}.glb` };
+    }
+    postToStudio({
+      type: 'UPDATE_NODE',
+      nodeId: pascalItemId,
+      patch,
+    });
+  };
+
+  const handleDeleteElement = (elementId: string, elementType: string) => {
+    if (!building) return;
+    const updatedFloors = building.floors.map((floor) => ({
+      ...floor,
+      doors: elementType === 'door' ? floor.doors.filter((d) => d.id !== elementId) : floor.doors,
+      windows: elementType === 'window' ? floor.windows.filter((w) => w.id !== elementId) : floor.windows,
+      furniture: elementType === 'item' ? floor.furniture?.filter((f) => f.id !== elementId) : floor.furniture,
+    }));
+    const updatedBuilding = { ...building, floors: updatedFloors };
+    onBuildingUpdate?.(updatedBuilding);
+    setIsDirty(true);
+
+    const pascalId = `${elementType}_${elementId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    postToStudio({
+      type: 'DELETE_NODE',
+      nodeId: pascalId,
+    });
+    setSelectedNode(null);
+  };
+
+  const handleSelectNodeById = (nodeId: string, type: string) => {
+    setSelectedNode({ id: nodeId, type });
+    setIsPropertiesOpen(true);
+    postToStudio({
+      type: 'SELECT_LEVEL',
+      levelId: nodeId,
+    });
+  };
 
   const handleSave = () => {
     setSaving(true);
@@ -573,6 +768,132 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
             <Boxes className="w-3.5 h-3.5 text-emerald-400" />
             <span>Elements Catalog</span>
           </button>
+
+          {/* Floor Isolation Mode Pill */}
+          <div className="flex items-center rounded bg-slate-950 p-0.5 border border-slate-800 text-[11px]">
+            <button
+              data-testid="floor-mode-isolate"
+              type="button"
+              onClick={() => handleToggleLevelMode('solo')}
+              className={`px-2 py-0.5 rounded transition ${
+                levelMode === 'solo'
+                  ? 'bg-sky-600 text-white font-semibold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Isolate Active Floor (Hide other floors)"
+            >
+              Isolate Floor
+            </button>
+            <button
+              data-testid="floor-mode-stacked"
+              type="button"
+              onClick={() => handleToggleLevelMode('stacked')}
+              className={`px-2 py-0.5 rounded transition ${
+                levelMode === 'stacked'
+                  ? 'bg-sky-600 text-white font-semibold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Show All Floors Stacked"
+            >
+              All Floors
+            </button>
+            <button
+              data-testid="floor-mode-exploded"
+              type="button"
+              onClick={() => handleToggleLevelMode('exploded')}
+              className={`px-2 py-0.5 rounded transition ${
+                levelMode === 'exploded'
+                  ? 'bg-sky-600 text-white font-semibold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Exploded Floor View"
+            >
+              Exploded
+            </button>
+          </div>
+
+          {/* Wall Cutaway Mode Pill */}
+          <div className="flex items-center rounded bg-slate-950 p-0.5 border border-slate-800 text-[11px]">
+            <button
+              data-testid="wall-mode-cutaway"
+              type="button"
+              onClick={() => handleToggleWallMode('cutaway')}
+              className={`px-2 py-0.5 rounded transition ${
+                wallMode === 'cutaway'
+                  ? 'bg-sky-600 text-white font-semibold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Cutaway Walls for Interior Visibility"
+            >
+              Cutaway
+            </button>
+            <button
+              data-testid="wall-mode-full"
+              type="button"
+              onClick={() => handleToggleWallMode('up')}
+              className={`px-2 py-0.5 rounded transition ${
+                wallMode === 'up'
+                  ? 'bg-sky-600 text-white font-semibold'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Full Height Walls"
+            >
+              Full Walls
+            </button>
+          </div>
+
+          {/* Walk Inside Button */}
+          <button
+            data-testid="walkthrough-btn"
+            type="button"
+            onClick={handleToggleWalkthrough}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded border transition font-medium cursor-pointer ${
+              walkthroughActive
+                ? 'bg-amber-600 border-amber-500 text-white shadow-xs'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+            }`}
+            title="Walk Inside in First-Person (Press V)"
+          >
+            <Footprints className="w-3.5 h-3.5 text-amber-400" />
+            <span>Walk Inside</span>
+            <span className="text-[10px] text-slate-400 font-mono">V</span>
+          </button>
+
+          {/* Measure Tool Button */}
+          <button
+            data-testid="measure-btn"
+            type="button"
+            onClick={handleToggleMeasure}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded border transition font-medium cursor-pointer ${
+              measureActive
+                ? 'bg-sky-600 border-sky-500 text-white'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+            }`}
+            title="3D Tape Measure (Press M)"
+          >
+            <Ruler className="w-3.5 h-3.5 text-sky-400" />
+            <span>Measure</span>
+            <span className="text-[10px] text-slate-400 font-mono">M</span>
+          </button>
+
+          {/* Properties Inspector Button */}
+          <button
+            data-testid="properties-inspector-btn"
+            type="button"
+            onClick={() => setIsPropertiesOpen(!isPropertiesOpen)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded border transition font-medium cursor-pointer ${
+              isPropertiesOpen
+                ? 'bg-sky-600 border-sky-500 text-white'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+            }`}
+            title="Toggle 3D Element Properties Inspector"
+          >
+            <Sliders className="w-3.5 h-3.5 text-sky-400" />
+            <span>Properties</span>
+            {selectedNode && (
+              <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+            )}
+          </button>
         </div>
       </div>
 
@@ -588,6 +909,20 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
           onLoad={() => {
             postToStudio({ type: 'PING' });
           }}
+        />
+
+        {/* 3D Element Properties Inspector (Scoped strictly to 3D Viewport) */}
+        <ElementPropertiesInspector
+          isOpen={isPropertiesOpen}
+          onClose={() => setIsPropertiesOpen(false)}
+          selectedNode={selectedNode}
+          building={building}
+          activeFloorId={activeFloorId}
+          onUpdateDoor={handleUpdateDoor}
+          onUpdateWindow={handleUpdateWindow}
+          onUpdateFurniture={handleUpdateFurniture}
+          onDeleteElement={handleDeleteElement}
+          onSelectNodeById={handleSelectNodeById}
         />
       </div>
 
