@@ -199,6 +199,13 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
             setIsGenerating(false); setActiveWorkspace('cad_2d');
             setSaveWarning('');
 
+            // Immediately register generated building in backend registry for 3D Pascal compile
+            void fetch(`/api/projects/${encodeURIComponent(event.data.result.building.projectId)}/canonical`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ building: event.data.result.building }),
+            }).catch(err => console.warn('Failed to sync canonical building to backend:', err));
+
             void outcome.durable.then(result => {
               if (result.state === 'SAVED') return;
               setSaveWarning(
@@ -252,6 +259,11 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
   const handleOpenDemoProject = () => {
     const demoBuilding = createCanonical30x50_2BHK('Demo Architectural Project', 'proj-demo-canonical');
     editor.setBuilding(demoBuilding, 'Demo Architectural Project');
+    void fetch(`/api/projects/proj-demo-canonical/canonical`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ building: demoBuilding }),
+    }).catch(err => console.warn('Failed to sync demo building to backend:', err));
     const firstResidential = demoBuilding.floors.find((f) => f.apartmentUnits?.length) || demoBuilding.floors[0];
     if (firstResidential) {
       editor.switchFloor(firstResidential.id);

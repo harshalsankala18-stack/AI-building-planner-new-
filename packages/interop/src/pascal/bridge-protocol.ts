@@ -29,12 +29,19 @@ export interface PingMessage {
   type: 'PING';
 }
 
+export interface SelectLevelMessage {
+  type: 'SELECT_LEVEL';
+  levelId: string;
+  isolate?: boolean;
+}
+
 export type HostToStudioMessage =
   | LoadSceneMessage
   | RequestSaveMessage
   | ImportIfcBufferMessage
   | SetViewModeMessage
-  | PingMessage;
+  | PingMessage
+  | SelectLevelMessage;
 
 export interface StudioReadyMessage {
   type: 'STUDIO_READY';
@@ -69,13 +76,21 @@ export interface StudioErrorMessage {
   message: string;
 }
 
+export interface SceneMutatedMessage {
+  type: 'SCENE_MUTATED';
+  scene: PascalScenePayload;
+  syncOrigin?: string;
+  nodeCount: number;
+}
+
 export type StudioToHostMessage =
   | StudioReadyMessage
   | SceneLoadedMessage
   | SceneDirtyMessage
   | SceneSavedPayloadMessage
   | IfcImportedMessage
-  | StudioErrorMessage;
+  | StudioErrorMessage
+  | SceneMutatedMessage;
 
 const HOST_MESSAGE_TYPES: ReadonlySet<string> = new Set<HostToStudioMessage['type']>([
   'LOAD_SCENE',
@@ -83,6 +98,7 @@ const HOST_MESSAGE_TYPES: ReadonlySet<string> = new Set<HostToStudioMessage['typ
   'IMPORT_IFC_BUFFER',
   'SET_VIEW_MODE',
   'PING',
+  'SELECT_LEVEL',
 ]);
 
 const STUDIO_MESSAGE_TYPES: ReadonlySet<string> = new Set<StudioToHostMessage['type']>([
@@ -92,6 +108,7 @@ const STUDIO_MESSAGE_TYPES: ReadonlySet<string> = new Set<StudioToHostMessage['t
   'SCENE_SAVED_PAYLOAD',
   'IFC_IMPORTED',
   'STUDIO_ERROR',
+  'SCENE_MUTATED',
 ]);
 
 export function isHostMessage(data: unknown): data is HostToStudioMessage {

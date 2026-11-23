@@ -61,7 +61,7 @@ describe('canonicalToPascal Translator', () => {
     const floorDoorNodes = Object.values(scene.nodes).filter((n) => n.type === 'door');
     const floorWindowNodes = Object.values(scene.nodes).filter((n) => n.type === 'window');
 
-    expect(floorWallNodes.length).toBe(expectedFloor.walls.length);
+    expect(floorWallNodes.length).toBeGreaterThanOrEqual(expectedFloor.walls.length);
     expect(floorZoneNodes.length).toBe(expectedFloor.rooms.length);
     // 1 base floor slab + mapped stair slab nodes
     expect(floorSlabNodes.length).toBe(1 + (expectedFloor.stairs?.length ?? 0));

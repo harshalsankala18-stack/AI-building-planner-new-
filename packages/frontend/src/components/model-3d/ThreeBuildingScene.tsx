@@ -229,7 +229,7 @@ export const ThreeBuildingScene: React.FC<ThreeBuildingSceneProps> = ({
         nightGlow.visible = true;
       }
     } else {
-      scene.background = new THREE.Color(0xe8eef5);
+      scene.background = new THREE.Color(0x0a1120);
       if (hemi) {
         hemi.color.setHex(0xddeeff);
         hemi.groundColor.setHex(0x182235);

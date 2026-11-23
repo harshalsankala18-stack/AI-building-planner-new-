@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import type { Building } from '@ai-floor-planner/core';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -20,14 +21,20 @@ import {
 
 export interface PascalStudioFrameProps {
   readonly projectId: string;
+  readonly building?: Building;
+  readonly onBuildingUpdate?: (building: Building) => void;
   readonly onFallbackToStandard?: () => void;
   readonly reloadKey?: number;
+  readonly activeFloorId?: string;
 }
 
 export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
   projectId,
+  building,
+  onBuildingUpdate,
   onFallbackToStandard,
   reloadKey,
+  activeFloorId,
 }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -72,7 +79,16 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
   const loadSceneFromBackend = useCallback(async () => {
     try {
       setStatusMessage('Loading building scene...');
-      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/pascal-scene`);
+      let res: Response;
+      if (building) {
+        res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/sync-from-2d`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ building }),
+        });
+      } else {
+        res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/pascal-scene`);
+      }
       if (!res.ok) {
         throw new Error(`Failed to load scene (${res.status})`);
       }
@@ -92,7 +108,16 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
       const msg = err instanceof Error ? err.message : String(err);
       setStatusMessage(`Error loading scene: ${msg}`);
     }
-  }, [projectId, postToStudio]);
+  }, [projectId, building, postToStudio]);
+
+  useEffect(() => {
+    if (activeFloorId && studioReady) {
+      postToStudio({
+        type: 'SELECT_LEVEL',
+        levelId: `level_${activeFloorId.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+      });
+    }
+  }, [activeFloorId, studioReady, postToStudio]);
 
   useEffect(() => {
     if (reloadKey && studioReady) {
@@ -147,6 +172,27 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
           break;
         }
 
+        case 'SCENE_MUTATED': {
+          if (message.syncOrigin === 'pascal-studio') {
+            try {
+              const putRes = await fetch(`/api/projects/${encodeURIComponent(projectId)}/pascal-scene`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scene: message.scene }),
+              });
+              if (putRes.ok) {
+                const resData = await putRes.json() as any;
+                if (resData.building) {
+                  onBuildingUpdate?.(resData.building);
+                }
+              }
+            } catch (err) {
+              console.warn('Failed to live-sync 3D scene mutation to backend:', err);
+            }
+          }
+          break;
+        }
+
         case 'SCENE_SAVED_PAYLOAD': {
           try {
             const putRes = await fetch(`/api/projects/${encodeURIComponent(projectId)}/pascal-scene`, {
@@ -155,9 +201,13 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
               body: JSON.stringify({ scene: message.scene }),
             });
             if (!putRes.ok) throw new Error(`Save failed (${putRes.status})`);
+            const resData = await putRes.json() as any;
+            if (resData.building) {
+              onBuildingUpdate?.(resData.building);
+            }
             setIsDirty(false);
             setSaving(false);
-            setStatusMessage('3D scene saved');
+            setStatusMessage('3D scene saved & 2D plan updated');
           } catch (err) {
             setSaving(false);
             const msg = err instanceof Error ? err.message : String(err);
@@ -200,6 +250,8 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
     try {
       const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/pascal-scene/reset`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ building }),
       });
       if (!res.ok) throw new Error(`Reset failed (${res.status})`);
       const data = await res.json() as any;

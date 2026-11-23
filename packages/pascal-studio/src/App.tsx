@@ -113,6 +113,8 @@ export const App: React.FC = () => {
   // Buffer incoming scene if host pushes before Editor onLoad requests it
   const pendingSceneRef = useRef<any | null>(null);
   const onLoadResolverRef = useRef<((scene: any) => void) | null>(null);
+  const isHydratingRef = useRef(false);
+  const mutationDebounceTimerRef = useRef<any>(null);
 
   const isStandalone = typeof window !== 'undefined' && window.self === window.top;
 
@@ -150,6 +152,7 @@ export const App: React.FC = () => {
           case 'LOAD_SCENE': {
             const { nodes, rootNodeIds } = message.scene;
             pendingSceneRef.current = { nodes, rootNodeIds };
+            isHydratingRef.current = true;
 
             if (onLoadResolverRef.current) {
               onLoadResolverRef.current({ nodes, rootNodeIds });
@@ -165,6 +168,21 @@ export const App: React.FC = () => {
               type: 'SCENE_LOADED',
               nodeCount: Object.keys(nodes).length,
             });
+            setTimeout(() => {
+              isHydratingRef.current = false;
+            }, 300);
+            break;
+          }
+
+          case 'SELECT_LEVEL': {
+            const levelId = message.levelId;
+            if (levelId) {
+              const state = useScene.getState();
+              const node = state.nodes[levelId];
+              if (node && (state as any).setSelectedNodeId) {
+                (state as any).setSelectedNodeId(levelId);
+              }
+            }
             break;
           }
 
@@ -212,7 +230,7 @@ export const App: React.FC = () => {
 
     window.addEventListener('message', handleMessage);
 
-    // Track scene dirty state
+    // Track scene dirty state and debounced mutations
     let prevDirty = false;
     const unsubscribeDirty = useScene.subscribe((state) => {
       const isDirty = (state.dirtyNodes?.size ?? 0) > 0;
@@ -220,12 +238,35 @@ export const App: React.FC = () => {
         prevDirty = isDirty;
         sendToHost({ type: 'SCENE_DIRTY', dirty: isDirty });
       }
+
+      if (isHydratingRef.current) return;
+
+      if (isDirty && state.nodes && Object.keys(state.nodes).length > 0) {
+        if (mutationDebounceTimerRef.current) {
+          clearTimeout(mutationDebounceTimerRef.current);
+        }
+        mutationDebounceTimerRef.current = setTimeout(() => {
+          if (isHydratingRef.current) return;
+          sendToHost({
+            type: 'SCENE_MUTATED',
+            scene: {
+              nodes: state.nodes,
+              rootNodeIds: state.rootNodeIds,
+            },
+            nodeCount: Object.keys(state.nodes).length,
+            syncOrigin: 'pascal-studio',
+          });
+        }, 500);
+      }
     });
 
     return () => {
       mounted = false;
       window.removeEventListener('message', handleMessage);
       unsubscribeDirty();
+      if (mutationDebounceTimerRef.current) {
+        clearTimeout(mutationDebounceTimerRef.current);
+      }
     };
   }, []);
 
@@ -240,7 +281,7 @@ export const App: React.FC = () => {
   /**
    * Required host prop for @pascal-app/editor
    * Resolves immediately with starter scene in standalone mode (:5174).
-   * In iframe mode, awaits LOAD_SCENE with a 2-second fallback timeout.
+   * In iframe mode, awaits LOAD_SCENE from host without fake starter fallback.
    */
   const handleEditorLoad = async () => {
     if (isStandalone) {
@@ -253,14 +294,10 @@ export const App: React.FC = () => {
       return scene;
     }
 
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        onLoadResolverRef.current = null;
-        resolve(createStarterScene() as any);
-      }, 2000);
+    sendToHost({ type: 'STUDIO_READY', webgpuSupported: typeof navigator !== 'undefined' && Boolean((navigator as any).gpu) });
 
+    return new Promise((resolve) => {
       onLoadResolverRef.current = (scene) => {
-        clearTimeout(timeout);
         resolve(scene);
       };
     });

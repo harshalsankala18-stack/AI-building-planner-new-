@@ -6,7 +6,6 @@ import { coordinateStairAccess, stairModelIssues } from '@ai-floor-planner/plann
 import { createBlenderExport, createBlenderLauncher } from '../../services/blender-export';
 import { Building3DProjector, type Building3DProjectionSettings, type ProjectionParameter, type ProjectionSource } from '@ai-floor-planner/projection-3d';
 import { ThreeBuildingScene } from './ThreeBuildingScene';
-import { PascalStudioFrame } from './PascalStudioFrame';
 import {
   loadModelViewPreferences,
   DEFAULT_MODEL_VIEW_PREFERENCES,
@@ -53,7 +52,6 @@ export const ModelWorkspace: React.FC<ModelWorkspaceProps> = ({
 }) => {
   const [coordinationMessage, setCoordinationMessage] = useState('');
   const [stairReviewOpen, setStairReviewOpen] = useState(false);
-  const [workspaceMode, setWorkspaceMode] = useState<'standard' | 'pascal'>('standard');
   const stairIssues = useMemo(() => stairModelIssues(building), [building]);
   const [preferences, setPreferences] = useState<ModelViewPreferences>(() => loadModelViewPreferences(building.projectId));
   const [fitRequest, setFitRequest] = useState(0);
@@ -81,31 +79,6 @@ export const ModelWorkspace: React.FC<ModelWorkspaceProps> = ({
     ? (explodeValue / 100) * 4.5
     : (preferences.exploded ? 1.8 : 0);
   const effectiveExploded = effectiveExplodeDistance > 0;
-
-  if (workspaceMode === 'pascal') {
-    return (
-      <section className="model-workspace" aria-label="Pascal 3D Studio workspace">
-        <div style={{ position: 'absolute', top: 12, right: 16, zIndex: 50, display: 'flex', gap: '4px', background: 'rgba(11, 20, 33, 0.9)', padding: '3px', borderRadius: '7px', border: '1px solid #2b3b50', backdropFilter: 'blur(12px)' }}>
-          <button
-            style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '5px', cursor: 'pointer', border: 'none', background: 'transparent', color: '#8293a5' }}
-            onClick={() => setWorkspaceMode('standard')}
-          >
-            Standard 3D
-          </button>
-          <button
-            style={{ padding: '4px 10px', fontSize: '11px', borderRadius: '5px', cursor: 'pointer', border: 'none', background: '#17352e', color: '#85eed8', fontWeight: 600 }}
-            onClick={() => setWorkspaceMode('pascal')}
-          >
-            Pascal 3D Studio (Beta)
-          </button>
-        </div>
-        <PascalStudioFrame
-          projectId={building.projectId}
-          onFallbackToStandard={() => setWorkspaceMode('standard')}
-        />
-      </section>
-    );
-  }
 
   if (projection.floorPlates.every(plate => plate.boundary.points.length < 3)) {
     return <div className="model-empty-state"><Box size={38} /><strong>NO BUILDING GEOMETRY AVAILABLE</strong><p>Create or load valid floor geometry before opening the structured model.</p></div>;
@@ -156,21 +129,6 @@ export const ModelWorkspace: React.FC<ModelWorkspaceProps> = ({
     </div>
 
     <div className="model-toolbar" aria-label="3D model controls">
-      <div className="model-control-group" style={{ borderRight: '1px solid rgba(255,255,255,0.15)', paddingRight: '4px', marginRight: '2px' }}>
-        <button
-          className="active"
-          onClick={() => setWorkspaceMode('standard')}
-          title="Default Schematic 3D View"
-        >
-          Standard 3D
-        </button>
-        <button
-          onClick={() => setWorkspaceMode('pascal')}
-          title="Pascal 3D Studio (Beta)"
-        >
-          Pascal 3D Studio (Beta)
-        </button>
-      </div>
       <div className="model-control-group">
         <Rotate3D size={14} />
         {(['isometric', 'front', 'back', 'left', 'right', 'top'] as const).map(preset => <button key={preset} className={preferences.cameraPreset === preset ? 'active' : ''} onClick={() => update('cameraPreset', preset)}>{preset}</button>)}

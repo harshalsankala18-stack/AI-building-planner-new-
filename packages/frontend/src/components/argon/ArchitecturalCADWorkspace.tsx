@@ -267,6 +267,9 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
         <div className="flex-1 min-h-0 relative">
           <PascalStudioFrame
             projectId={editor.building.projectId}
+            building={editor.building}
+            onBuildingUpdate={(updatedBuilding) => editor.setBuilding(updatedBuilding)}
+            activeFloorId={editor.activeFloor.id}
             reloadKey={sync3dCount}
             onFallbackToStandard={() => setWorkspaceMode('3d-standard')}
           />
@@ -305,6 +308,9 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
             <div className="flex-1 min-h-0">
               <PascalStudioFrame
                 projectId={editor.building.projectId}
+                building={editor.building}
+                onBuildingUpdate={(updatedBuilding) => editor.setBuilding(updatedBuilding)}
+                activeFloorId={editor.activeFloor.id}
                 reloadKey={sync3dCount}
                 onFallbackToStandard={() => setWorkspaceMode('3d-standard')}
               />

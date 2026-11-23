@@ -401,9 +401,16 @@ async function route(request: IncomingMessage, response: ServerResponse, deps: S
       return;
     }
 
-    // Wrap readBody with 10MB limit for pascal scene routes
+    // Wrap readBody with 20MB limit for pascal scene, canonical, and sync-from-2d routes
     const readBodyForRoute = (req: IncomingMessage) =>
-      readBody(req, url.pathname.includes('/pascal-scene') ? 10 * 1024 * 1024 : 1 * 1024 * 1024);
+      readBody(
+        req,
+        (url.pathname.includes('/pascal-scene') ||
+          url.pathname.includes('/canonical') ||
+          url.pathname.includes('/sync-from-2d'))
+          ? 20 * 1024 * 1024
+          : 1 * 1024 * 1024
+      );
 
     if (await handleExportRoute(request, response, url, readBodyForRoute, sendJson, CORS_HEADERS)) return;
 

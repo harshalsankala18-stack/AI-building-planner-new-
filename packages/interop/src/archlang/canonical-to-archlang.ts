@@ -102,7 +102,11 @@ export interface RoomLockImpactAnalysis {
  * Sanitizes an ID into a clean ArchLang identifier (alphanumeric and underscore).
  */
 export function toArchLangId(rawId: string): string {
-  return rawId.replace(/[^a-zA-Z0-9_]/g, '_');
+  const sanitized = rawId.replace(/[^a-zA-Z0-9_]/g, '_');
+  if (/^[0-9]/.test(sanitized)) {
+    return `r_${sanitized}`;
+  }
+  return sanitized;
 }
 
 /**
@@ -368,13 +372,17 @@ export function compileCanonicalFloorWithArchLang(
   let source = canonicalToArchLang(building, floorId, options);
 
   if (options.autoFurnish) {
-    try {
-      const finishRes = finish(source);
-      if (finishRes && finishRes.source) {
-        source = finishRes.source;
+    if (stats.roomCount > 25) {
+      warnings.push(`Floor has ${stats.roomCount} rooms; skipping combinatorial auto-furnish finish step to maintain sub-second compile latency.`);
+    } else {
+      try {
+        const finishRes = finish(source);
+        if (finishRes && finishRes.source) {
+          source = finishRes.source;
+        }
+      } catch (err: any) {
+        warnings.push(`ArchLang auto-furnish finish step reported: ${err.message ?? String(err)}`);
       }
-    } catch (err: any) {
-      warnings.push(`ArchLang auto-furnish finish step reported: ${err.message ?? String(err)}`);
     }
   }
 

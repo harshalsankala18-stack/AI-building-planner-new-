@@ -28,7 +28,7 @@ function resolveBuildingForProject(projectId: string, explicitBuilding?: Buildin
   if (explicitBuilding && Array.isArray(explicitBuilding.floors) && explicitBuilding.floors.length > 0) {
     return explicitBuilding;
   }
-  return getProjectBuilding(projectId);
+  return getProjectBuilding(projectId, true) ?? createMockCanonicalBuilding();
 }
 
 /**
