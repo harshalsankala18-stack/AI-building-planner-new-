@@ -260,6 +260,7 @@ export {
 export {
   APARTMENT_IMAGE_INTERPRETATION_SCHEMA,
   APARTMENT_INTERPRETATION_FRAME,
+  COMMON_AREA_FLAT_ID,
   interpretPlanImageWithGemini,
 } from './orchestration/vision-interpretation';
 export { runGeminiApartmentPreflight } from './orchestration/apartment-preflight';
@@ -298,3 +299,9 @@ export {
   type ParametricRippleOptions,
   type ParametricRippleResult,
 } from './parametric/parametric-ripple-solver';
+export {
+  ImageProviderError,
+  type ImageGenerationProvider,
+  type GeneratedPlanImage,
+} from './providers/image-generation';
+

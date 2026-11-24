@@ -52,6 +52,19 @@ export function getProjectBuilding(projectId: string, allowFallback = false): Bu
   const registered = projectBuildingRegistry.get(projectId);
   if (registered) return registered;
 
+  const diskPath = path.resolve(`output/canonical-buildings/${projectId}.json`);
+  if (fs.existsSync(diskPath)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(diskPath, 'utf8'));
+      if (parsed?.id && parsed?.floors) {
+        projectBuildingRegistry.set(projectId, parsed);
+        return parsed;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   if (
     allowFallback ||
     projectId === 'proj-canonical-30x50-2bhk' ||

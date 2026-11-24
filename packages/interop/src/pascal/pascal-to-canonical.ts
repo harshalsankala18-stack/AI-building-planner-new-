@@ -61,17 +61,21 @@ export function pascalToCanonicalPatch(
       floor.floorHeight = Math.round(levelNode.height * 1000);
     }
 
-    // 1. Extract Walls belonging to this level
+    // 1. Extract Walls belonging to this level (differential update)
     const wallNodes = Object.values(nodes).filter(
       (n: any) => (n.type === 'wall' || n.id?.startsWith('wall_')) && n.parentId === levelNode.id,
     ) as any[];
 
     if (wallNodes.length > 0) {
-      const updatedWalls: Wall[] = [];
+      const updatedWallsMap = new Map<string, Wall>();
+      // Preserve existing walls first
+      for (const w of floor.walls ?? []) {
+        updatedWallsMap.set(w.id, w);
+      }
 
       for (const wn of wallNodes) {
         const rawWallId = fromPascalId(wn.id, 'wall');
-        const existingWall = floor.walls?.find((w: any) => w.id === rawWallId);
+        const existingWall = updatedWallsMap.get(rawWallId);
 
         const startX = Math.round((wn.start?.[0] ?? 0) * 1000);
         const startY = Math.round((wn.start?.[1] ?? 0) * 1000);
@@ -84,8 +88,9 @@ export function pascalToCanonicalPatch(
           existingWall?.type ??
           (thickness >= 200 ? WallType.External : WallType.Internal);
 
-        updatedWalls.push({
-          id: existingWall?.id || rawWallId,
+        const wallId = existingWall?.id || rawWallId;
+        updatedWallsMap.set(wallId, {
+          id: wallId,
           floorId: floor.id,
           startPoint: { x: startX, y: startY },
           endPoint: { x: endX, y: endY },
@@ -100,116 +105,128 @@ export function pascalToCanonicalPatch(
         });
       }
 
-      floor.walls = updatedWalls;
+      floor.walls = Array.from(updatedWallsMap.values());
     }
 
-    // 2. Extract Doors & Windows hosted on walls
-    const updatedDoors: Door[] = [];
-    const updatedWindows: Window[] = [];
-
+    // 2. Extract Doors & Windows hosted on walls (differential update)
     const doorNodes = Object.values(nodes).filter(
       (n: any) => n.type === 'door' || n.id?.startsWith('door_'),
     ) as any[];
 
-    for (const dn of doorNodes) {
-      const rawDoorId = fromPascalId(dn.id, 'door');
-      const parentWallNode = nodes[dn.parentId] as any;
-      const wallId = parentWallNode ? fromPascalId(parentWallNode.id, 'wall') : dn.parentId;
-
-      let posX = 0;
-      let posY = 0;
-      if (parentWallNode && parentWallNode.start && parentWallNode.end) {
-        let ratio = 0.5;
-        if (Array.isArray(dn.position)) {
-          const u = dn.position[0];
-          const wallLen = Math.hypot(parentWallNode.end[0] - parentWallNode.start[0], parentWallNode.end[1] - parentWallNode.start[1]);
-          ratio = wallLen > 0 ? Math.max(0, Math.min(1, u / wallLen)) : 0.5;
-        } else if (typeof dn.position === 'number') {
-          ratio = dn.position;
-        }
-        posX = Math.round(
-          (parentWallNode.start[0] + (parentWallNode.end[0] - parentWallNode.start[0]) * ratio) *
-            1000,
-        );
-        posY = Math.round(
-          (parentWallNode.start[1] + (parentWallNode.end[1] - parentWallNode.start[1]) * ratio) *
-            1000,
-        );
+    if (doorNodes.length > 0) {
+      const updatedDoorsMap = new Map<string, Door>();
+      for (const d of floor.doors ?? []) {
+        updatedDoorsMap.set(d.id, d);
       }
 
-      const existingDoor = floor.doors?.find((d: any) => d.id === rawDoorId);
-      const connects: readonly [string, string] = existingDoor?.connectsRooms && existingDoor.connectsRooms.length >= 2
-        ? existingDoor.connectsRooms
-        : ['__outside__', existingDoor?.connectsRooms?.[0] || '__outside__'];
+      for (const dn of doorNodes) {
+        const rawDoorId = fromPascalId(dn.id, 'door');
+        const parentWallNode = nodes[dn.parentId] as any;
+        const wallId = parentWallNode ? fromPascalId(parentWallNode.id, 'wall') : dn.parentId;
 
-      updatedDoors.push({
-        id: existingDoor?.id || rawDoorId,
-        floorId: floor.id,
-        wallId: wallId || existingDoor?.wallId || '',
-        position: posX !== 0 && posY !== 0 ? { x: posX, y: posY } : existingDoor?.position || { x: 0, y: 0 },
-        width: Math.round((dn.width ?? 0.9) * 1000),
-        height: Math.round((dn.height ?? 2.1) * 1000),
-        type: existingDoor?.type || (dn.doorType === 'sliding' ? DoorType.Sliding : dn.doorType === 'double' ? DoorType.Double : DoorType.Single),
-        swingDirection: existingDoor?.swingDirection || (dn.swingDirection === 'outward' ? SwingDirection.Outward : SwingDirection.Inward),
-        connectsRooms: connects,
-        category: existingDoor?.category || dn.metadata?.category || dn.metadata?.doorCategory,
-        placement: existingDoor?.placement ?? 'interior',
-        leafCount: dn.leafCount ?? existingDoor?.leafCount ?? 1,
-        style: existingDoor?.style,
-      });
+        let posX = 0;
+        let posY = 0;
+        if (parentWallNode && parentWallNode.start && parentWallNode.end) {
+          let ratio = 0.5;
+          if (Array.isArray(dn.position)) {
+            const u = dn.position[0];
+            const wallLen = Math.hypot(parentWallNode.end[0] - parentWallNode.start[0], parentWallNode.end[1] - parentWallNode.start[1]);
+            ratio = wallLen > 0 ? Math.max(0, Math.min(1, u / wallLen)) : 0.5;
+          } else if (typeof dn.position === 'number') {
+            ratio = dn.position;
+          }
+          posX = Math.round(
+            (parentWallNode.start[0] + (parentWallNode.end[0] - parentWallNode.start[0]) * ratio) *
+              1000,
+          );
+          posY = Math.round(
+            (parentWallNode.start[1] + (parentWallNode.end[1] - parentWallNode.start[1]) * ratio) *
+              1000,
+          );
+        }
+
+        const existingDoor = updatedDoorsMap.get(rawDoorId);
+        const connects: readonly [string, string] = existingDoor?.connectsRooms && existingDoor.connectsRooms.length >= 2
+          ? existingDoor.connectsRooms
+          : ['__outside__', existingDoor?.connectsRooms?.[0] || '__outside__'];
+
+        const doorId = existingDoor?.id || rawDoorId;
+        updatedDoorsMap.set(doorId, {
+          id: doorId,
+          floorId: floor.id,
+          wallId: wallId || existingDoor?.wallId || '',
+          position: posX !== 0 && posY !== 0 ? { x: posX, y: posY } : existingDoor?.position || { x: 0, y: 0 },
+          width: Math.round((dn.width ?? 0.9) * 1000),
+          height: Math.round((dn.height ?? 2.1) * 1000),
+          type: existingDoor?.type || (dn.doorType === 'sliding' ? DoorType.Sliding : dn.doorType === 'double' ? DoorType.Double : DoorType.Single),
+          swingDirection: existingDoor?.swingDirection || (dn.swingDirection === 'outward' ? SwingDirection.Outward : SwingDirection.Inward),
+          connectsRooms: connects,
+          category: existingDoor?.category || dn.metadata?.category || dn.metadata?.doorCategory,
+          placement: existingDoor?.placement ?? 'interior',
+          leafCount: dn.leafCount ?? existingDoor?.leafCount ?? 1,
+          style: existingDoor?.style,
+        });
+      }
+      floor.doors = Array.from(updatedDoorsMap.values());
     }
 
     const windowNodes = Object.values(nodes).filter(
       (n: any) => n.type === 'window' || n.id?.startsWith('window_'),
     ) as any[];
 
-    for (const wn of windowNodes) {
-      const rawWindowId = fromPascalId(wn.id, 'window');
-      const parentWallNode = nodes[wn.parentId] as any;
-      const wallId = parentWallNode ? fromPascalId(parentWallNode.id, 'wall') : wn.parentId;
-
-      let posX = 0;
-      let posY = 0;
-      if (parentWallNode && parentWallNode.start && parentWallNode.end) {
-        let ratio = 0.5;
-        if (Array.isArray(wn.position)) {
-          const u = wn.position[0];
-          const wallLen = Math.hypot(parentWallNode.end[0] - parentWallNode.start[0], parentWallNode.end[1] - parentWallNode.start[1]);
-          ratio = wallLen > 0 ? Math.max(0, Math.min(1, u / wallLen)) : 0.5;
-        } else if (typeof wn.position === 'number') {
-          ratio = wn.position;
-        }
-        posX = Math.round(
-          (parentWallNode.start[0] + (parentWallNode.end[0] - parentWallNode.start[0]) * ratio) *
-            1000,
-        );
-        posY = Math.round(
-          (parentWallNode.start[1] + (parentWallNode.end[1] - parentWallNode.start[1]) * ratio) *
-            1000,
-        );
+    if (windowNodes.length > 0) {
+      const updatedWindowsMap = new Map<string, Window>();
+      for (const w of floor.windows ?? []) {
+        updatedWindowsMap.set(w.id, w);
       }
 
-      const existingWindow = floor.windows?.find((w: any) => w.id === rawWindowId);
-      updatedWindows.push({
-        id: existingWindow?.id || rawWindowId,
-        floorId: floor.id,
-        wallId: wallId || existingWindow?.wallId || '',
-        position: posX !== 0 && posY !== 0 ? { x: posX, y: posY } : existingWindow?.position || { x: 0, y: 0 },
-        width: Math.round((wn.width ?? 1.2) * 1000),
-        height: Math.round((wn.height ?? 1.2) * 1000),
-        sillHeight: Math.round((wn.sillHeight ?? 0.9) * 1000),
-        sillHeightMm: Math.round((wn.sillHeight ?? 0.9) * 1000),
-        type: existingWindow?.type || (wn.windowType === 'sliding' ? WindowType.Sliding : wn.windowType === 'louvered' ? WindowType.Ventilator : WindowType.Casement),
-        roomId: existingWindow?.roomId || '',
-        category: existingWindow?.category || wn.metadata?.category || wn.metadata?.windowCategory,
-        placement: existingWindow?.placement ?? 'exterior',
-        leafCount: existingWindow?.leafCount ?? 2,
-        style: existingWindow?.style,
-      });
-    }
+      for (const wn of windowNodes) {
+        const rawWindowId = fromPascalId(wn.id, 'window');
+        const parentWallNode = nodes[wn.parentId] as any;
+        const wallId = parentWallNode ? fromPascalId(parentWallNode.id, 'wall') : wn.parentId;
 
-    if (updatedDoors.length > 0) floor.doors = updatedDoors;
-    if (updatedWindows.length > 0) floor.windows = updatedWindows;
+        let posX = 0;
+        let posY = 0;
+        if (parentWallNode && parentWallNode.start && parentWallNode.end) {
+          let ratio = 0.5;
+          if (Array.isArray(wn.position)) {
+            const u = wn.position[0];
+            const wallLen = Math.hypot(parentWallNode.end[0] - parentWallNode.start[0], parentWallNode.end[1] - parentWallNode.start[1]);
+            ratio = wallLen > 0 ? Math.max(0, Math.min(1, u / wallLen)) : 0.5;
+          } else if (typeof wn.position === 'number') {
+            ratio = wn.position;
+          }
+          posX = Math.round(
+            (parentWallNode.start[0] + (parentWallNode.end[0] - parentWallNode.start[0]) * ratio) *
+              1000,
+          );
+          posY = Math.round(
+            (parentWallNode.start[1] + (parentWallNode.end[1] - parentWallNode.start[1]) * ratio) *
+              1000,
+          );
+        }
+
+        const existingWindow = updatedWindowsMap.get(rawWindowId);
+        const winId = existingWindow?.id || rawWindowId;
+        updatedWindowsMap.set(winId, {
+          id: winId,
+          floorId: floor.id,
+          wallId: wallId || existingWindow?.wallId || '',
+          position: posX !== 0 && posY !== 0 ? { x: posX, y: posY } : existingWindow?.position || { x: 0, y: 0 },
+          width: Math.round((wn.width ?? 1.2) * 1000),
+          height: Math.round((wn.height ?? 1.2) * 1000),
+          sillHeight: Math.round((wn.sillHeight ?? 0.9) * 1000),
+          sillHeightMm: Math.round((wn.sillHeight ?? 0.9) * 1000),
+          type: existingWindow?.type || (wn.windowType === 'sliding' ? WindowType.Sliding : wn.windowType === 'louvered' ? WindowType.Ventilator : WindowType.Casement),
+          roomId: existingWindow?.roomId || '',
+          category: existingWindow?.category || wn.metadata?.category || wn.metadata?.windowCategory,
+          placement: existingWindow?.placement ?? 'exterior',
+          leafCount: existingWindow?.leafCount ?? 2,
+          style: existingWindow?.style,
+        });
+      }
+      floor.windows = Array.from(updatedWindowsMap.values());
+    }
 
     // Extract Stairs belonging to this level
     const stairNodes = Object.values(nodes).filter(
@@ -263,11 +280,15 @@ export function pascalToCanonicalPatch(
     ) as any[];
 
     if (zoneNodes.length > 0) {
-      const updatedRooms: Room[] = [];
+      const updatedRoomsMap = new Map<string, Room>();
+      // Preserve existing rooms first
+      for (const r of floor.rooms ?? []) {
+        updatedRoomsMap.set(r.id, r);
+      }
 
       for (const zn of zoneNodes) {
         const rawRoomId = fromPascalId(zn.id, 'zone');
-        const existingRoom = floor.rooms?.find((r: any) => r.id === rawRoomId);
+        const existingRoom = updatedRoomsMap.get(rawRoomId);
 
         let points = existingRoom?.boundary?.points || [];
         if (Array.isArray(zn.polygon) && zn.polygon.length >= 3) {
@@ -288,8 +309,9 @@ export function pascalToCanonicalPatch(
         const height = Math.max(1000, maxY - minY);
         const area = Math.round((zn.area ? zn.area * 1_000_000 : width * height));
 
-        updatedRooms.push({
-          id: existingRoom?.id || rawRoomId,
+        const roomId = existingRoom?.id || rawRoomId;
+        updatedRoomsMap.set(roomId, {
+          id: roomId,
           floorId: floor.id,
           unitId: existingRoom?.unitId,
           name: zn.name || zn.label || existingRoom?.name || 'Room',
@@ -311,7 +333,7 @@ export function pascalToCanonicalPatch(
         });
       }
 
-      floor.rooms = updatedRooms;
+      floor.rooms = Array.from(updatedRoomsMap.values());
     }
 
     // 4. Extract Furniture & Interior Lighting Items (ItemNode) (§Stage B2)
@@ -327,13 +349,15 @@ export function pascalToCanonicalPatch(
     ) as any[];
 
     if (itemNodes.length > 0) {
-      const updatedFurniture: CanonicalFurnitureItem[] = [];
+      const updatedFurnitureMap = new Map<string, CanonicalFurnitureItem>();
+      for (const f of floor.furniture ?? []) {
+        updatedFurnitureMap.set(f.id, f);
+      }
 
       for (const inItem of itemNodes) {
         const rawItemId = fromPascalId(inItem.id, 'item');
-        const existingItem = floor.furniture?.find(
-          (f: any) => f.id === rawItemId || f.id === inItem.metadata?.canonicalItemId,
-        );
+        const existingItem = updatedFurnitureMap.get(rawItemId) ||
+          (floor.furniture?.find((f: any) => f.id === inItem.metadata?.canonicalItemId));
 
         const isCeiling =
           inItem.metadata?.mountType === 'ceiling' ||
@@ -355,8 +379,9 @@ export function pascalToCanonicalPatch(
         const yawRad = inItem.rotation?.[1] ?? 0;
         const rotationDeg = Math.round((yawRad * 180) / Math.PI);
 
-        updatedFurniture.push({
-          id: existingItem?.id || inItem.metadata?.canonicalItemId || rawItemId,
+        const itemId = existingItem?.id || inItem.metadata?.canonicalItemId || rawItemId;
+        updatedFurnitureMap.set(itemId, {
+          id: itemId,
           type: existingItem?.type ?? 'table',
           roomId: inItem.metadata?.canonicalRoomId || existingItem?.roomId || '',
           floorId: floor.id,
@@ -378,7 +403,7 @@ export function pascalToCanonicalPatch(
         });
       }
 
-      floor.furniture = updatedFurniture;
+      floor.furniture = Array.from(updatedFurnitureMap.values());
     }
   }
 

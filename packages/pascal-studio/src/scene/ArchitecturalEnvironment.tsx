@@ -2,6 +2,7 @@ import React, { useMemo, useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useScene } from '@pascal-app/core';
+import { useViewer } from '@pascal-app/viewer';
 
 /**
  * Procedurally generates a high-resolution PBR Grass texture (1024x1024)
@@ -155,9 +156,150 @@ function createSkyDomeTexture(): THREE.CanvasTexture {
   return texture;
 }
 
-export const ArchitecturalEnvironment: React.FC = () => {
-  const { scene, gl } = useThree();
+/**
+ * Room Floor Plates Subcomponent:
+ * Renders distinct PBR room flooring materials at y = +0.005m (+5mm above slab)
+ * matching architectural room specifications:
+ * - Living/Dining/Bedrooms: #D8C3A5 (warm oak finish)
+ * - Kitchen/Baths/Utility: #E2E6EA (ceramic tile finish)
+ * - Corridors/Porch/Foyer: #E8E2D8 (travertine finish)
+ * - Balconies: #C8CCD0 (slate finish)
+ */
+export const RoomFloorPlates: React.FC = () => {
   const nodes = useScene((s) => s.nodes);
+  const selectedLevelId = useViewer((v) => v.selection?.levelId);
+  const levelMode = useViewer((v) => v.levelMode);
+
+  const floorPlates = useMemo(() => {
+    const plates: Array<{
+      id: string;
+      levelElevation: number;
+      shape: THREE.Shape;
+      color: string;
+      roughness: number;
+      name: string;
+      levelId: string;
+    }> = [];
+
+    for (const node of Object.values(nodes)) {
+      if ((node as any).type !== 'zone') continue;
+      const zone = node as any;
+      if (!Array.isArray(zone.polygon) || zone.polygon.length < 3) continue;
+
+      const parentLevel = nodes[zone.parentId] as any;
+      const levelElevation = typeof parentLevel?.elevation === 'number' ? parentLevel.elevation : 0;
+
+      const shape = new THREE.Shape();
+      zone.polygon.forEach((pt: [number, number], idx: number) => {
+        if (idx === 0) shape.moveTo(pt[0], -pt[1]);
+        else shape.lineTo(pt[0], -pt[1]);
+      });
+      shape.closePath();
+
+      const type = ((zone.metadata?.type || zone.name || '') as string).toLowerCase();
+      let color = '#DDD8CE';
+      let roughness = 0.55;
+
+      if (
+        type.includes('bed') ||
+        type.includes('living') ||
+        type.includes('dining') ||
+        type.includes('hall') ||
+        type.includes('drawing') ||
+        type.includes('lounge') ||
+        type.includes('study') ||
+        type.includes('puja') ||
+        type.includes('mandir')
+      ) {
+        color = '#D8C3A5'; // Warm oak wood finish
+        roughness = 0.65;
+      } else if (
+        type.includes('bath') ||
+        type.includes('toilet') ||
+        type.includes('wc') ||
+        type.includes('kitchen') ||
+        type.includes('utility') ||
+        type.includes('wash') ||
+        type.includes('store')
+      ) {
+        color = '#E2E6EA'; // Ceramic tile finish
+        roughness = 0.35;
+      } else if (
+        type.includes('foyer') ||
+        type.includes('entry') ||
+        type.includes('porch') ||
+        type.includes('corridor') ||
+        type.includes('lobby') ||
+        type.includes('passage')
+      ) {
+        color = '#E8E2D8'; // Travertine stone finish
+        roughness = 0.55;
+      } else if (
+        type.includes('balcony') ||
+        type.includes('terrace') ||
+        type.includes('deck') ||
+        type.includes('verandah')
+      ) {
+        color = '#C8CCD0'; // Slate grey finish
+        roughness = 0.70;
+      }
+
+      plates.push({
+        id: zone.id,
+        levelElevation,
+        shape,
+        color,
+        roughness,
+        name: zone.name || zone.id,
+        levelId: zone.parentId,
+      });
+    }
+
+    return plates;
+  }, [nodes]);
+
+  // Solo mode: only render floor plates for the isolated floor
+  const visiblePlates = useMemo(() => {
+    if (levelMode === 'solo' && selectedLevelId) {
+      return floorPlates.filter((p) => p.levelId === selectedLevelId);
+    }
+    return floorPlates;
+  }, [floorPlates, levelMode, selectedLevelId]);
+
+  return (
+    <group name="RoomFloorPlates" raycast={() => null}>
+      {visiblePlates.map((plate) => (
+        <mesh
+          key={plate.id}
+          name={`zone-floor-${plate.id}`}
+          position={[0, plate.levelElevation + 0.005, 0]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          receiveShadow
+          raycast={() => null}
+          userData={{ isZoneFloor: true, zoneId: plate.id, roomName: plate.name }}
+        >
+          <shapeGeometry args={[plate.shape]} />
+          <meshStandardMaterial
+            color={plate.color}
+            roughness={plate.roughness}
+            metalness={0.03}
+          />
+        </mesh>
+      ))}
+    </group>
+  );
+};
+
+export const ArchitecturalEnvironment: React.FC = () => {
+  const { scene, camera, gl } = useThree();
+  const nodes = useScene((s) => s.nodes);
+
+  // Expose Three.js scene & camera globally for headless audit & test inspection
+  useEffect(() => {
+    (window as any).__THREE_SCENE__ = scene;
+    (window as any).__THREE_CAMERA__ = camera;
+    (window as any).__THREE_GL__ = gl;
+  }, [scene, camera, gl]);
 
   // Compute building footprint bounding box in meters
   const bounds = useMemo(() => {
@@ -241,7 +383,7 @@ export const ArchitecturalEnvironment: React.FC = () => {
     };
   }, [gl, scene]);
 
-  // Undulating Terrain Geometry (400m x 400m, flat inside building pad, rolling hills outside)
+  // Undulating Terrain Geometry (400m x 400m, flat inside building pad at y = -0.18m, rolling hills outside)
   const terrainGeometry = useMemo(() => {
     const geo = new THREE.PlaneGeometry(420, 420, 84, 84);
     geo.rotateX(-Math.PI / 2);
@@ -257,17 +399,17 @@ export const ArchitecturalEnvironment: React.FC = () => {
       const dz = z - centerZ;
       const dist = Math.sqrt(dx * dx + dz * dz);
 
-      let y = -0.06; // 60mm below building ground floor to avoid Z-fighting
+      let y = -0.18; // Base 180mm below building ground floor to avoid Z-fighting
 
-      // Keep pad area flat, gently undulate outside perimeter
-      const flatZone = padRadius + 14;
+      // Keep pad area completely flat, gently undulate outside perimeter
+      const flatZone = padRadius + 8;
       if (dist > flatZone) {
         const factor = Math.min(1.0, (dist - flatZone) / 50);
         // Smooth rolling hills on horizon
         const hill =
-          Math.sin(x * 0.022) * Math.cos(z * 0.022) * 5.2 +
-          Math.sin(x * 0.045 + 1.5) * 2.1 +
-          Math.cos(z * 0.038 - 0.8) * 2.8;
+          Math.sin(x * 0.022) * Math.cos(z * 0.022) * 4.2 +
+          Math.sin(x * 0.045 + 1.5) * 1.8 +
+          Math.cos(z * 0.038 - 0.8) * 2.2;
         y += hill * factor;
       }
 
@@ -289,7 +431,7 @@ export const ArchitecturalEnvironment: React.FC = () => {
       return seed / 4294967296;
     };
 
-    // Distribute 85 trees in natural perimeter groves
+    // Distribute 90 trees in natural perimeter groves
     for (let i = 0; i < 90; i++) {
       const angle = rnd() * Math.PI * 2;
       const dist = padRadius + 6 + rnd() * 110;
@@ -308,10 +450,10 @@ export const ArchitecturalEnvironment: React.FC = () => {
       const dx = x - centerX;
       const dz = z - centerZ;
       const d = Math.sqrt(dx * dx + dz * dz);
-      let y = -0.06;
-      if (d > padRadius + 14) {
-        const factor = Math.min(1.0, (d - (padRadius + 14)) / 50);
-        y += (Math.sin(x * 0.022) * Math.cos(z * 0.022) * 5.2 + Math.sin(x * 0.045 + 1.5) * 2.1) * factor;
+      let y = -0.18;
+      if (d > padRadius + 8) {
+        const factor = Math.min(1.0, (d - (padRadius + 8)) / 50);
+        y += (Math.sin(x * 0.022) * Math.cos(z * 0.022) * 4.2 + Math.sin(x * 0.045 + 1.5) * 1.8) * factor;
       }
 
       const mat = new THREE.Matrix4();
@@ -403,8 +545,8 @@ export const ArchitecturalEnvironment: React.FC = () => {
         />
       </mesh>
 
-      {/* 4. Clean Architectural Site Pad (Under Building + 2.5m Apron) */}
-      <group position={[bounds.centerX, -0.02, bounds.centerZ]} raycast={() => null}>
+      {/* 4. Clean Architectural Site Pad (Under Building + 2.5m Apron at y = -0.04m) */}
+      <group position={[bounds.centerX, -0.04, bounds.centerZ]} raycast={() => null}>
         {/* Main Paved Apron / Foundation Pad */}
         <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]}>
           <planeGeometry args={[bounds.padWidth, bounds.padDepth]} />
@@ -429,35 +571,38 @@ export const ArchitecturalEnvironment: React.FC = () => {
           />
         </mesh>
 
-        {/* Subtle Chamfered Granite Curb Border around Pad */}
+        {/* Subtle Chamfered Granite Curb Border around Pad (height 0.03m, top at y = -0.01m, strictly below ground slab 0.00m) */}
         {/* North Curb */}
-        <mesh position={[0, 0.05, bounds.padDepth / 2]} castShadow receiveShadow>
-          <boxGeometry args={[bounds.padWidth + 0.4, 0.12, 0.2]} />
+        <mesh position={[0, 0.015, bounds.padDepth / 2]} castShadow receiveShadow>
+          <boxGeometry args={[bounds.padWidth + 0.4, 0.03, 0.2]} />
           <meshStandardMaterial color="#888580" roughness={0.65} />
         </mesh>
         {/* East Curb */}
-        <mesh position={[bounds.padWidth / 2, 0.05, 0]} castShadow receiveShadow>
-          <boxGeometry args={[0.2, 0.12, bounds.padDepth + 0.4]} />
+        <mesh position={[bounds.padWidth / 2, 0.015, 0]} castShadow receiveShadow>
+          <boxGeometry args={[0.2, 0.03, bounds.padDepth + 0.4]} />
           <meshStandardMaterial color="#888580" roughness={0.65} />
         </mesh>
         {/* West Curb */}
-        <mesh position={[-bounds.padWidth / 2, 0.05, 0]} castShadow receiveShadow>
-          <boxGeometry args={[0.2, 0.12, bounds.padDepth + 0.4]} />
+        <mesh position={[-bounds.padWidth / 2, 0.015, 0]} castShadow receiveShadow>
+          <boxGeometry args={[0.2, 0.03, bounds.padDepth + 0.4]} />
           <meshStandardMaterial color="#888580" roughness={0.65} />
         </mesh>
         {/* South Curb (Left Segment) */}
-        <mesh position={[-(bounds.padWidth / 2 + 3.5) / 2, 0.05, -bounds.padDepth / 2]} castShadow receiveShadow>
-          <boxGeometry args={[(bounds.padWidth - 7) / 2, 0.12, 0.2]} />
+        <mesh position={[-(bounds.padWidth / 2 + 3.5) / 2, 0.015, -bounds.padDepth / 2]} castShadow receiveShadow>
+          <boxGeometry args={[(bounds.padWidth - 7) / 2, 0.03, 0.2]} />
           <meshStandardMaterial color="#888580" roughness={0.65} />
         </mesh>
         {/* South Curb (Right Segment) */}
-        <mesh position={[(bounds.padWidth / 2 + 3.5) / 2, 0.05, -bounds.padDepth / 2]} castShadow receiveShadow>
-          <boxGeometry args={[(bounds.padWidth - 7) / 2, 0.12, 0.2]} />
+        <mesh position={[(bounds.padWidth / 2 + 3.5) / 2, 0.015, -bounds.padDepth / 2]} castShadow receiveShadow>
+          <boxGeometry args={[(bounds.padWidth - 7) / 2, 0.03, 0.2]} />
           <meshStandardMaterial color="#888580" roughness={0.65} />
         </mesh>
       </group>
 
-      {/* 5. Instanced 3D Trees & Foliage (Silky Smooth 60 FPS) */}
+      {/* 5. Distinct Architect-Grade Room Floor Plates */}
+      <RoomFloorPlates />
+
+      {/* 6. Instanced 3D Trees & Foliage (Silky Smooth 60 FPS) */}
       {treeInstances.length > 0 && (
         <>
           <instancedMesh

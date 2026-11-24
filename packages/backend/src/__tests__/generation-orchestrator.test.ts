@@ -266,14 +266,12 @@ describe('Two-AI Generation Orchestrator', () => {
   it('verifies server health check diagnostics correctly distinguish status', async () => {
     const config = resolveImageServiceConfig();
     const mockDeps = {
-      provider: new LocalStubImageProvider(),
       gemini: null,
-      interpreterKind: 'local-stub' as const,
+      briefInterpreterKind: 'local-stub' as const,
     };
 
     const health = await checkProviderHealth(config, mockDeps);
-    expect(health.cloudflare.reachable).toBe(true);
-    expect(health.cloudflare.status).toBe('REACHABLE');
+    expect(health.status).toBe('ok');
     expect(health.gemini.status).toBe('REACHABLE'); // local-stub active
   });
 

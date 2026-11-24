@@ -83,7 +83,7 @@ export function createETABSExportRoute(
       if(request.method!=='POST'||match[1])throw new ExportError('METHOD_NOT_ALLOWED','Use POST to export or GET with an artifact ID to download',405);
       if(!request.headers['content-type']?.startsWith('application/json'))throw new ExportError('UNSUPPORTED_MEDIA_TYPE','Use application/json',415);
       const raw=await readBody(request);
-      if(Buffer.byteLength(raw)>1048576)throw new ExportError('PROJECT_TOO_LARGE','Request exceeds 1 MiB',413);
+      if(Buffer.byteLength(raw)>20971520)throw new ExportError('PROJECT_TOO_LARGE','Request exceeds 20 MiB',413);
       let body:unknown;try{body=JSON.parse(raw);}catch{throw new ExportError('INVALID_JSON','Invalid JSON',400);}
       if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).some(k=>k!=='project')||!('project'in body))
         throw new ExportError('INVALID_REQUEST','Body must contain only project; paths and native commands are forbidden',400);

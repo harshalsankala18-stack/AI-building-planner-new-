@@ -1,4 +1,4 @@
-import React, { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
+import React, { Component, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import { loadPlugin, useScene } from '@pascal-app/core';
 import { builtinPlugin } from '@pascal-app/nodes';
 import { Editor, useEditor } from '@pascal-app/editor';
@@ -13,6 +13,40 @@ import {
 } from '@ai-floor-planner/interop/bridge';
 import { createStarterScene } from './starter-scene';
 import { ArchitecturalEnvironment } from './scene/ArchitecturalEnvironment';
+
+/**
+ * Fast deterministic hash of user-editable scene elements (items, walls, doors, windows, zones).
+ * Ignores internal non-geometric state so unsolicited internal dirty flags never trigger mutations.
+ */
+function computeSceneContentHash(nodes: Record<string, any> | undefined): string {
+  if (!nodes) return '';
+  const entries: string[] = [];
+  for (const [id, node] of Object.entries(nodes)) {
+    if (!node || typeof node !== 'object') continue;
+    const type = (node as any).type;
+    if (type === 'item') {
+      const pos = (node as any).position ?? [];
+      const rot = (node as any).rotation ?? [];
+      entries.push(`${id}:item:${pos.map((v: number) => Math.round(v * 100)).join(',')}:${rot.map((v: number) => Math.round(v * 100)).join(',')}`);
+    } else if (type === 'wall') {
+      const s = (node as any).start ?? [];
+      const e = (node as any).end ?? [];
+      const th = Math.round(((node as any).thickness ?? 0) * 100);
+      entries.push(`${id}:wall:${s.map((v: number) => Math.round(v * 100)).join(',')}:${e.map((v: number) => Math.round(v * 100)).join(',')}:${th}`);
+    } else if (type === 'door' || type === 'window') {
+      const pos = (node as any).position ?? [];
+      const wId = (node as any).wallId ?? '';
+      const w = Math.round(((node as any).width ?? 0) * 100);
+      entries.push(`${id}:${type}:${wId}:${pos.map((v: number) => Math.round(v * 100)).join(',')}:${w}`);
+    } else if (type === 'zone') {
+      const poly = (node as any).polygon ?? [];
+      const pts = poly.map((pt: [number, number]) => `${Math.round(pt[0] * 100)},${Math.round(pt[1] * 100)}`).join(';');
+      entries.push(`${id}:zone:${pts}`);
+    }
+  }
+  entries.sort();
+  return entries.join('|');
+}
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -116,6 +150,8 @@ export const App: React.FC = () => {
   const onLoadResolverRef = useRef<((scene: any) => void) | null>(null);
   const isHydratingRef = useRef(false);
   const mutationDebounceTimerRef = useRef<any>(null);
+  const userEditActiveRef = useRef(false);
+  const lastSyncedHashRef = useRef<string>('');
 
   const isStandalone = typeof window !== 'undefined' && window.self === window.top;
 
@@ -154,6 +190,8 @@ export const App: React.FC = () => {
             const { nodes, rootNodeIds } = message.scene;
             pendingSceneRef.current = { nodes, rootNodeIds };
             isHydratingRef.current = true;
+            userEditActiveRef.current = false;
+            lastSyncedHashRef.current = computeSceneContentHash(nodes);
 
             if (onLoadResolverRef.current) {
               onLoadResolverRef.current({ nodes, rootNodeIds });
@@ -192,7 +230,9 @@ export const App: React.FC = () => {
             });
             setTimeout(() => {
               isHydratingRef.current = false;
-            }, 300);
+              lastSyncedHashRef.current = computeSceneContentHash(useScene.getState().nodes);
+              userEditActiveRef.current = false;
+            }, 500);
             break;
           }
 
@@ -294,6 +334,7 @@ export const App: React.FC = () => {
             const state = useScene.getState();
             const node = state.nodes[nodeId];
             if (node) {
+              userEditActiveRef.current = true;
               state.nodes[nodeId] = { ...node, ...patch } as any;
               state.dirtyNodes = new Set([...(state.dirtyNodes ?? []), nodeId]);
               useScene.setState({ nodes: { ...state.nodes }, dirtyNodes: state.dirtyNodes });
@@ -306,6 +347,7 @@ export const App: React.FC = () => {
             const state = useScene.getState();
             const node = state.nodes[nodeId];
             if (node) {
+              userEditActiveRef.current = true;
               const newNodes = { ...state.nodes };
               delete newNodes[nodeId];
               if (node.parentId && newNodes[node.parentId]) {
@@ -363,7 +405,14 @@ export const App: React.FC = () => {
 
     window.addEventListener('message', handleMessage);
 
-    // Track scene dirty state and debounced mutations
+    // Track user active editing intent (pointer interaction or keydown on canvas)
+    const onUserInteraction = () => {
+      userEditActiveRef.current = true;
+    };
+    window.addEventListener('pointerdown', onUserInteraction, { capture: true });
+    window.addEventListener('keydown', onUserInteraction, { capture: true });
+
+    // Track scene dirty state and debounced mutations strictly gated on user intent
     let prevDirty = false;
     const unsubscribeDirty = useScene.subscribe((state) => {
       const isDirty = (state.dirtyNodes?.size ?? 0) > 0;
@@ -373,6 +422,10 @@ export const App: React.FC = () => {
       }
 
       if (isHydratingRef.current) return;
+      if (!userEditActiveRef.current) return;
+
+      const currentHash = computeSceneContentHash(state.nodes);
+      if (currentHash === lastSyncedHashRef.current) return;
 
       if (isDirty && state.nodes && Object.keys(state.nodes).length > 0) {
         if (mutationDebounceTimerRef.current) {
@@ -380,13 +433,22 @@ export const App: React.FC = () => {
         }
         mutationDebounceTimerRef.current = setTimeout(() => {
           if (isHydratingRef.current) return;
+          if (!userEditActiveRef.current) return;
+
+          const freshHash = computeSceneContentHash(useScene.getState().nodes);
+          if (freshHash === lastSyncedHashRef.current) return;
+
+          lastSyncedHashRef.current = freshHash;
+          userEditActiveRef.current = false;
+
+          const curState = useScene.getState();
           sendToHost({
             type: 'SCENE_MUTATED',
             scene: {
-              nodes: state.nodes,
-              rootNodeIds: state.rootNodeIds,
+              nodes: curState.nodes,
+              rootNodeIds: curState.rootNodeIds,
             },
-            nodeCount: Object.keys(state.nodes).length,
+            nodeCount: Object.keys(curState.nodes).length,
             syncOrigin: 'pascal-studio',
           });
         }, 500);
@@ -420,6 +482,8 @@ export const App: React.FC = () => {
     return () => {
       mounted = false;
       window.removeEventListener('message', handleMessage);
+      window.removeEventListener('pointerdown', onUserInteraction, { capture: true });
+      window.removeEventListener('keydown', onUserInteraction, { capture: true });
       unsubscribeDirty();
       unsubscribeSelection();
       if (mutationDebounceTimerRef.current) {
@@ -427,6 +491,8 @@ export const App: React.FC = () => {
       }
     };
   }, []);
+
+  const memoizedViewerSceneSlot = useMemo(() => <ArchitecturalEnvironment />, []);
 
   const handleStudioError = (error: Error) => {
     sendToHost({
@@ -489,7 +555,7 @@ export const App: React.FC = () => {
             <Editor
               onLoad={handleEditorLoad}
               onSave={handleEditorSave}
-              viewerSceneSlot={<ArchitecturalEnvironment />}
+              viewerSceneSlot={memoizedViewerSceneSlot}
             />
           )
         ) : (

@@ -42,6 +42,7 @@ function positiveInt(value: string | undefined, fallback: number): number {
 }
 
 export function resolveServiceConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig {
+
   const interpreterKind = (env.BRIEF_INTERPRETER ?? 'gemini').trim().toLowerCase();
   // Both defaults are real, currently-available Gemini model IDs, verified
   // with a live smoke call against the Generative Language API. The previous
@@ -80,3 +81,7 @@ export function resolveServiceConfig(env: NodeJS.ProcessEnv = process.env): Serv
     workerRole,
   };
 }
+
+export const resolveImageServiceConfig = resolveServiceConfig;
+export type ImageServiceConfig = ServiceConfig;
+

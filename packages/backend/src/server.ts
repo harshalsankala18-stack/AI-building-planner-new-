@@ -16,6 +16,9 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import fs from 'node:fs';
 import path from 'node:path';
 import { handleExportRoute } from './api/export-routes.js';
+import { handleFloorPlanGeneration, handleArtifactGet } from './api/image-routes.js';
+import { ImageArtifactStore } from './services/image-artifact-store.js';
+import type { ImageGenerationProvider } from '@ai-floor-planner/ai-orchestration';
 import { handlePascalSceneRoute } from './api/pascal-scene-routes.js';
 import { handleArchLangRoute } from './api/archlang-routes.js';
 import { handleAiEditRoute } from './api/ai-edit-routes.js';
@@ -115,11 +118,17 @@ export interface BackendHealthResponse {
  */
 export async function checkProviderHealth(
   config: ServiceConfig,
-  deps: { gemini: BaseAIProvider | null; briefInterpreterKind: 'gemini' | 'local-stub' },
-): Promise<BackendHealthResponse> {
+  deps: {
+    gemini: BaseAIProvider | null;
+    briefInterpreterKind?: 'gemini' | 'local-stub';
+    interpreterKind?: 'gemini' | 'local-stub';
+    provider?: ImageGenerationProvider | null;
+  },
+): Promise<BackendHealthResponse & { imageProvider?: string }> {
   let geminiStatus: ProviderStatusInfo;
+  const interpreterKind = deps.briefInterpreterKind ?? deps.interpreterKind ?? 'gemini';
 
-  if (deps.briefInterpreterKind === 'local-stub') {
+  if (interpreterKind === 'local-stub') {
     geminiStatus = {
       configured: true,
       reachable: true,
@@ -158,11 +167,11 @@ export async function checkProviderHealth(
   }
 
   const planGeneration: BackendHealthResponse['planGeneration'] =
-    config.geminiApiKey.length > 0 && deps.briefInterpreterKind === 'gemini'
+    config.geminiApiKey.length > 0 && interpreterKind === 'gemini'
       ? 'hybrid-gemini'
       : 'deterministic';
 
-  return {
+  const healthResult: BackendHealthResponse & { imageProvider?: string } = {
     // Deterministic generation is always available, so the service is `ok`
     // even when the optional interpretation provider is not reachable.
     status: 'ok',
@@ -172,15 +181,24 @@ export async function checkProviderHealth(
       fallbackModel: config.geminiFallbackModel,
     },
   };
+
+  if (deps.provider) {
+    healthResult.imageProvider = 'configured';
+  }
+
+  return healthResult;
 }
 
 export interface ServerDeps {
   readonly gemini: BaseAIProvider | null;
-  readonly briefInterpreterKind: 'gemini' | 'local-stub';
+  readonly briefInterpreterKind?: 'gemini' | 'local-stub';
+  readonly interpreterKind?: 'gemini' | 'local-stub';
   readonly config?: ServiceConfig;
   readonly storage?: ObjectStorageAdapter;
   readonly repository?: ProjectRepository;
   readonly jobQueue?: JobQueueAdapter;
+  readonly provider?: ImageGenerationProvider | null;
+  readonly store?: ImageArtifactStore;
 }
 
 /** Export and structural-report generation can exceed Node's default timeout. */
@@ -406,16 +424,44 @@ async function route(request: IncomingMessage, response: ServerResponse, deps: S
       return;
     }
 
-    // Wrap readBody with 20MB limit for pascal scene, canonical, and sync-from-2d routes
+    // Wrap readBody with 20MB limit for pascal scene, canonical, export, and sync-from-2d routes
     const readBodyForRoute = (req: IncomingMessage) =>
       readBody(
         req,
         (url.pathname.includes('/pascal-scene') ||
           url.pathname.includes('/canonical') ||
-          url.pathname.includes('/sync-from-2d'))
+          url.pathname.includes('/sync-from-2d') ||
+          url.pathname.includes('/export'))
           ? 20 * 1024 * 1024
           : 1 * 1024 * 1024
       );
+
+    if (method === 'POST' && (url.pathname === '/api/v1/image/floor-plan' || url.pathname === '/api/image/floor-plan')) {
+      const raw = await readBodyForRoute(request);
+      let body: unknown = null;
+      try {
+        body = raw.length > 0 ? JSON.parse(raw) : null;
+      } catch {
+        sendJson(response, 400, { error: { code: 'INVALID_JSON', message: 'Request body must be valid JSON.' } });
+        return;
+      }
+      const provider = deps.provider ?? null;
+      const store = deps.store ?? new ImageArtifactStore();
+      const res = await handleFloorPlanGeneration(body, { provider, store });
+      sendJson(response, res.status, res.json);
+      return;
+    }
+
+    if (method === 'GET' && (url.pathname.startsWith('/api/v1/image/artifacts/') || url.pathname.startsWith('/api/image/artifacts/'))) {
+      const prefix = url.pathname.startsWith('/api/v1/image/artifacts/')
+        ? '/api/v1/image/artifacts/'
+        : '/api/image/artifacts/';
+      const genId = url.pathname.slice(prefix.length);
+      const store = deps.store ?? new ImageArtifactStore();
+      const res = await handleArtifactGet(genId, store);
+      sendJson(response, res.status, res.json);
+      return;
+    }
 
     if (await handleAuthRoute(request, response, url, readBodyForRoute, sendJson, CORS_HEADERS)) return;
 

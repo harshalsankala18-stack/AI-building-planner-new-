@@ -72,6 +72,30 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
   const [aiEditing3d, setAiEditing3d] = useState(false);
   const [, setAppliedOpsCount] = useState<number | null>(null);
 
+  const buildingRef = useRef(building);
+  useEffect(() => {
+    buildingRef.current = building;
+  }, [building]);
+
+  const activeFloorIdRef = useRef(activeFloorId);
+  useEffect(() => {
+    activeFloorIdRef.current = activeFloorId;
+  }, [activeFloorId]);
+
+  const levelModeRef = useRef(levelMode);
+  useEffect(() => {
+    levelModeRef.current = levelMode;
+  }, [levelMode]);
+
+  const wallModeRef = useRef(wallMode);
+  useEffect(() => {
+    wallModeRef.current = wallMode;
+  }, [wallMode]);
+
+  const isSyncingFrom3dRef = useRef(false);
+  const isLoadingSceneRef = useRef(false);
+  const lastLoadedSceneKeyRef = useRef<string>('');
+
   // Check WebGPU availability at mount
   useEffect(() => {
     if (typeof navigator !== 'undefined') {
@@ -94,15 +118,25 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
     }
   }, []);
 
-  const loadSceneFromBackend = useCallback(async () => {
+  const loadSceneFromBackend = useCallback(async (force = false) => {
+    if (isLoadingSceneRef.current) return;
+    if (isSyncingFrom3dRef.current && !force) return;
+
+    const currentBuilding = buildingRef.current;
+    const revisionKey = `${currentBuilding?.id ?? projectId}_${currentBuilding?.version ?? 0}_${currentBuilding?.updatedAt ?? ''}`;
+    if (!force && lastLoadedSceneKeyRef.current === revisionKey && lastLoadedSceneKeyRef.current !== '') {
+      return;
+    }
+
     try {
+      isLoadingSceneRef.current = true;
       setStatusMessage('Loading building scene...');
       let res: Response;
-      if (building) {
+      if (currentBuilding) {
         res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/sync-from-2d`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ building }),
+          body: JSON.stringify({ building: currentBuilding }),
         });
       } else {
         res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/pascal-scene`);
@@ -115,6 +149,7 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
         setWarnings(data.warnings);
       }
       if (data.scene) {
+        lastLoadedSceneKeyRef.current = revisionKey;
         postToStudio({
           type: 'LOAD_SCENE',
           projectId,
@@ -125,8 +160,10 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setStatusMessage(`Error loading scene: ${msg}`);
+    } finally {
+      isLoadingSceneRef.current = false;
     }
-  }, [projectId, building, postToStudio]);
+  }, [projectId, postToStudio]);
 
   useEffect(() => {
     if (activeFloorId && studioReady) {
@@ -139,7 +176,7 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
 
   useEffect(() => {
     if (reloadKey && studioReady) {
-      void loadSceneFromBackend();
+      void loadSceneFromBackend(true);
     }
   }, [reloadKey, studioReady, loadSceneFromBackend]);
 
@@ -183,16 +220,16 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
         case 'SCENE_LOADED': {
           setStatusMessage(`Scene loaded (${message.nodeCount} nodes)`);
           // Default: Isolate active floor + Cutaway walls
-          if (activeFloorId) {
+          if (activeFloorIdRef.current) {
             postToStudio({
               type: 'SELECT_LEVEL',
-              levelId: `level_${activeFloorId.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
-              isolate: levelMode === 'solo',
+              levelId: `level_${activeFloorIdRef.current.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+              isolate: levelModeRef.current === 'solo',
             });
           }
           postToStudio({
             type: 'SET_WALL_MODE',
-            mode: wallMode,
+            mode: wallModeRef.current,
           });
           break;
         }
@@ -217,6 +254,7 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
         case 'SCENE_MUTATED': {
           if (message.syncOrigin === 'pascal-studio') {
             try {
+              isSyncingFrom3dRef.current = true;
               const putRes = await fetch(`/api/projects/${encodeURIComponent(projectId)}/pascal-scene`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -230,6 +268,10 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
               }
             } catch (err) {
               console.warn('Failed to live-sync 3D scene mutation to backend:', err);
+            } finally {
+              setTimeout(() => {
+                isSyncingFrom3dRef.current = false;
+              }, 400);
             }
           }
           break;
@@ -274,7 +316,7 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [projectId, loadSceneFromBackend, activeFloorId, levelMode, wallMode]);
+  }, [projectId, loadSceneFromBackend, postToStudio]);
 
   const handleToggleLevelMode = (mode: 'solo' | 'stacked' | 'exploded') => {
     setLevelMode(mode);
