@@ -1,7 +1,7 @@
 import React, { useMemo, useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useScene } from '@pascal-app/core';
+import { getLevelElevations, useScene } from '@pascal-app/core';
 import { SceneGroundReplacement, useViewer } from '@pascal-app/viewer';
 
 let cachedGrassMaps: {
@@ -188,13 +188,14 @@ export const RoomFloorPlates: React.FC = () => {
       levelId: string;
     }> = [];
 
+    const pascalLevelElevs = getLevelElevations(nodes);
+
     for (const node of Object.values(nodes)) {
       if ((node as any).type !== 'zone') continue;
       const zone = node as any;
       if (!Array.isArray(zone.polygon) || zone.polygon.length < 3) continue;
 
-      const parentLevel = nodes[zone.parentId] as any;
-      const levelElevation = typeof parentLevel?.elevation === 'number' ? parentLevel.elevation : 0;
+      const levelElevation = pascalLevelElevs.get(zone.parentId)?.baseY ?? 0;
 
       const shape = new THREE.Shape();
       zone.polygon.forEach((pt: [number, number], idx: number) => {
@@ -297,6 +298,132 @@ export const RoomFloorPlates: React.FC = () => {
   );
 };
 
+/**
+ * Architectural Cutaway Caps (#2F353D) + Multi-Story Slab Fascia Bands (#5A616A).
+ * Renders crisp dark-slate cut top caps on 1.65m cutaway walls and horizontal
+ * shadow-line perimeter slab bands between stacked levels for multi-story realism.
+ */
+const ArchitecturalCapsAndFascia: React.FC = () => {
+  const nodes = useScene((s) => s.nodes);
+  const selectedLevelId = useViewer((v) => v.selection?.levelId);
+  const levelMode = useViewer((v) => v.levelMode);
+
+  const { cutCaps, slabBands } = useMemo(() => {
+    const sortedLevels = Object.values(nodes)
+      .filter((n: any) => n && n.type === 'level')
+      .sort((a: any, b: any) => (a.level ?? 0) - (b.level ?? 0));
+    const pascalLevelElevs = getLevelElevations(nodes);
+    const levelElevMap = new Map<string, number>();
+    sortedLevels.forEach((lvl: any, idx: number) => {
+      const base = pascalLevelElevs.get(lvl.id)?.baseY ?? 0;
+      const explodedOffset = levelMode === 'exploded' ? idx * 2.2 : 0;
+      levelElevMap.set(lvl.id, base + explodedOffset);
+    });
+
+    const caps: Array<{
+      id: string;
+      cx: number;
+      y: number;
+      cz: number;
+      len: number;
+      thick: number;
+      angle: number;
+    }> = [];
+
+    const bands: Array<{
+      id: string;
+      cx: number;
+      y: number;
+      cz: number;
+      len: number;
+      height: number;
+      angle: number;
+    }> = [];
+
+    for (const node of Object.values(nodes)) {
+      if (!node || typeof node !== 'object') continue;
+      if ((node as any).type === 'wall') {
+        const w = node as any;
+        if (w.metadata?.isBalconyRailing || w.metadata?.wallUse === 'PARAPET') continue;
+        if (levelMode === 'solo' && selectedLevelId && w.parentId !== selectedLevelId) continue;
+        const h = Number(w.height ?? 3.0);
+        if (h < 1.35 || h > 2.05) continue;
+        if (!Array.isArray(w.start) || !Array.isArray(w.end)) continue;
+        const dx = w.end[0] - w.start[0];
+        const dz = w.end[1] - w.start[1];
+        const len = Math.hypot(dx, dz);
+        if (len < 0.08) continue;
+        const elev = levelElevMap.get(w.parentId) ?? 0;
+        caps.push({
+          id: w.id,
+          cx: (w.start[0] + w.end[0]) / 2,
+          y: elev + h + 0.008,
+          cz: (w.start[1] + w.end[1]) / 2,
+          len,
+          thick: Number(w.thickness ?? 0.2) + 0.015,
+          angle: -Math.atan2(dz, dx),
+        });
+      } else if ((node as any).type === 'slab' && levelMode !== 'solo' && sortedLevels.length > 1) {
+        const s = node as any;
+        const poly = Array.isArray(s.polygon) ? s.polygon : Array.isArray(s.points) ? s.points : null;
+        if (!poly || poly.length < 3) continue;
+        const elev = levelElevMap.get(s.parentId) ?? 0;
+        const slabThick = Math.max(0.22, Number(s.thickness ?? 0.22));
+        for (let i = 0; i < poly.length; i++) {
+          const a = poly[i];
+          const b = poly[(i + 1) % poly.length];
+          if (!a || !b) continue;
+          const dx = b[0] - a[0];
+          const dz = b[1] - a[1];
+          const len = Math.hypot(dx, dz);
+          if (len < 0.2) continue;
+          bands.push({
+            id: `${s.id}_${i}`,
+            cx: (a[0] + b[0]) / 2,
+            y: elev - slabThick / 2 + 0.02,
+            cz: (a[1] + b[1]) / 2,
+            len: len + 0.06,
+            height: slabThick,
+            angle: -Math.atan2(dz, dx),
+          });
+        }
+      }
+    }
+
+    return { cutCaps: caps, slabBands: bands };
+  }, [nodes, levelMode, selectedLevelId]);
+
+  if (cutCaps.length === 0 && slabBands.length === 0) return null;
+
+  return (
+    <group name="ArchitecturalCapsAndFascia" raycast={() => null}>
+      {cutCaps.map((c) => (
+        <mesh
+          key={`cap-${c.id}`}
+          position={[c.cx, c.y, c.cz]}
+          rotation={[0, c.angle, 0]}
+          raycast={() => null}
+        >
+          <boxGeometry args={[c.len, 0.022, c.thick]} />
+          <meshStandardMaterial color="#2F353D" roughness={0.68} metalness={0.08} />
+        </mesh>
+      ))}
+      {slabBands.map((b) => (
+        <mesh
+          key={`band-${b.id}`}
+          position={[b.cx, b.y, b.cz]}
+          rotation={[0, b.angle, 0]}
+          receiveShadow
+          raycast={() => null}
+        >
+          <boxGeometry args={[b.len, b.height, 0.08]} />
+          <meshStandardMaterial color="#5A616A" roughness={0.62} metalness={0.14} />
+        </mesh>
+      ))}
+    </group>
+  );
+};
+
 export const ArchitecturalEnvironment: React.FC = () => {
   const { scene, camera, gl, controls } = useThree();
   const nodes = useScene((s) => s.nodes);
@@ -317,13 +444,16 @@ export const ArchitecturalEnvironment: React.FC = () => {
     let maxZ = -Infinity;
 
     for (const node of Object.values(nodes)) {
-      if ((node as any).type === 'slab' && Array.isArray((node as any).points)) {
-        for (const pt of (node as any).points) {
-          if (Array.isArray(pt) && pt.length >= 2) {
-            minX = Math.min(minX, pt[0]);
-            maxX = Math.max(maxX, pt[0]);
-            minZ = Math.min(minZ, pt[1]);
-            maxZ = Math.max(maxZ, pt[1]);
+      if ((node as any).type === 'slab') {
+        const poly = (node as any).polygon ?? (node as any).points;
+        if (Array.isArray(poly)) {
+          for (const pt of poly) {
+            if (Array.isArray(pt) && pt.length >= 2) {
+              minX = Math.min(minX, pt[0]);
+              maxX = Math.max(maxX, pt[0]);
+              minZ = Math.min(minZ, pt[1]);
+              maxZ = Math.max(maxZ, pt[1]);
+            }
           }
         }
       } else if ((node as any).type === 'wall' && Array.isArray((node as any).start) && Array.isArray((node as any).end)) {
@@ -670,8 +800,9 @@ export const ArchitecturalEnvironment: React.FC = () => {
         </mesh>
       </group>
 
-      {/* 5. Distinct Architect-Grade Room Floor Plates */}
+      {/* 5. Distinct Architect-Grade Room Floor Plates + Cutaway Caps & Slab Fascia Bands */}
       <RoomFloorPlates />
+      <ArchitecturalCapsAndFascia />
 
       {/* 6. Instanced 3D Trees & Foliage (Silky Smooth 60 FPS) */}
       {treeInstances.length > 0 && (

@@ -431,7 +431,8 @@ async function route(request: IncomingMessage, response: ServerResponse, deps: S
         (url.pathname.includes('/pascal-scene') ||
           url.pathname.includes('/canonical') ||
           url.pathname.includes('/sync-from-2d') ||
-          url.pathname.includes('/export'))
+          url.pathname.includes('/export') ||
+          url.pathname.includes('/archlang'))
           ? 20 * 1024 * 1024
           : 1 * 1024 * 1024
       );

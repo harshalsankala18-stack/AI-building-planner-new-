@@ -243,20 +243,48 @@ function renderMepRuns(
       ? `<defs><marker id="fire-egress-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#16a34a"/></marker></defs>`
       : '';
 
+function orthogonalizeMepPoints(points: readonly Point[]): Point[] {
+  if (points.length < 2) return [...points];
+  const out: Point[] = [{ ...points[0]! }];
+  for (let i = 1; i < points.length; i++) {
+    const prev = out[out.length - 1]!;
+    const cur = points[i]!;
+    if (Math.abs(cur.x - prev.x) > 40 && Math.abs(cur.y - prev.y) > 40) {
+      out.push({ x: cur.x, y: prev.y });
+    }
+    out.push({ x: cur.x, y: cur.y });
+  }
+  return out;
+}
+
   const elements = matched.map((run) => {
     const st = colorByKind[run.kind] ?? colorByKind.WIRING_LOOP;
-    const screenPts = run.points.map((p) => worldToScreen(p, transform));
+    const routedPoints =
+      run.discipline === 'ELECTRICAL' || run.kind === 'FIRE_PIPE'
+        ? orthogonalizeMepPoints(run.points)
+        : run.points;
+    const screenPts = routedPoints.map((p) => worldToScreen(p, transform));
     const pts = screenPts.map((sp) => `${sp.x.toFixed(1)},${sp.y.toFixed(1)}`).join(' ');
     const dashAttr = st.dash ? ` stroke-dasharray="${st.dash}"` : '';
     const markerAttr = run.kind === 'FIRE_EGRESS' ? ' marker-end="url(#fire-egress-arrow)"' : '';
     const midPt = screenPts[Math.floor(screenPts.length / 2)]!;
+    const junctionDots =
+      run.discipline === 'ELECTRICAL'
+        ? screenPts
+            .slice(1, -1)
+            .map(
+              (jp) =>
+                `<circle cx="${jp.x.toFixed(1)}" cy="${jp.y.toFixed(1)}" r="1.9" fill="${st.stroke}" stroke="#ffffff" stroke-width="0.6" data-mep-junction="true"/>`,
+            )
+            .join('')
+        : '';
     const tagText =
       run.kind === 'FIRE_EGRESS' && run.egressDistanceM
         ? `<text data-fixed-annotation="true" x="${midPt.x.toFixed(1)}" y="${(midPt.y - 5).toFixed(1)}" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="6.5" font-weight="700" fill="#15803d">EGRESS ${run.egressDistanceM}m</text>`
         : run.circuitId
           ? `<text data-fixed-annotation="true" x="${midPt.x.toFixed(1)}" y="${(midPt.y - 4).toFixed(1)}" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="6" font-weight="700" fill="${st.stroke}">${escapeXml(run.circuitId)}</text>`
           : '';
-    return `<polyline points="${pts}" fill="none" stroke="${st.stroke}" stroke-width="${st.width}"${dashAttr}${markerAttr} stroke-opacity="0.9" data-layer="${escapeXml(run.layer)}" data-pipe-kind="${escapeXml(run.kind)}"/>${tagText}`;
+    return `<polyline points="${pts}" fill="none" stroke="${st.stroke}" stroke-width="${st.width}"${dashAttr}${markerAttr} stroke-opacity="0.9" data-layer="${escapeXml(run.layer)}" data-pipe-kind="${escapeXml(run.kind)}"/>${junctionDots}${tagText}`;
   });
 
   const layerName =

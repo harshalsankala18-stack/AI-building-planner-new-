@@ -624,6 +624,114 @@ function buildCarSedan() {
   return root;
 }
 
+// ---------------------------------------------------------------------------
+// 23. L-SHAPED SECTIONAL SOFA (2.70m W x 1.65m D x 0.82m H)
+// ---------------------------------------------------------------------------
+function buildSofaLSectional() {
+  const root = new THREE.Group();
+  const w = 2.70, d = 1.65, mainD = 0.85, legH = 0.12, backH = 0.82;
+  // Legs under main span and chaise front
+  for (const [lx, lz] of [
+    [-w / 2 + 0.1, -d / 2 + 0.1],
+    [w / 2 - 0.1, -d / 2 + 0.1],
+    [-w / 2 + 0.1, -d / 2 + mainD - 0.1],
+    [w / 2 - 0.9, -d / 2 + mainD - 0.1],
+    [w / 2 - 0.88, d / 2 - 0.1],
+    [w / 2 - 0.1, d / 2 - 0.1],
+  ]) {
+    root.add(makeCylinder(0.025, 0.018, legH, 10, matDarkWalnut, lx, legH / 2, lz));
+  }
+  // Main base deck
+  root.add(makeBox(w, 0.15, mainD, matFabricWarm, 0, legH + 0.075, -d / 2 + mainD / 2));
+  // Chaise base deck on right side extending forward
+  const chaiseW = 0.92;
+  const chaiseExtD = d - mainD;
+  root.add(makeBox(chaiseW, 0.15, chaiseExtD, matFabricWarm, w / 2 - chaiseW / 2, legH + 0.075, -d / 2 + mainD + chaiseExtD / 2));
+  // Backrest across full width
+  root.add(makeBox(w, backH - (legH + 0.15), 0.18, matFabricWarm, 0, legH + 0.15 + (backH - (legH + 0.15)) / 2, -d / 2 + 0.09));
+  // Armrests
+  root.add(makeBox(0.15, 0.22, mainD, matFabricWarm, -w / 2 + 0.075, legH + 0.15 + 0.11, -d / 2 + mainD / 2));
+  root.add(makeBox(0.15, 0.22, d * 0.72, matFabricWarm, w / 2 - 0.075, legH + 0.15 + 0.11, -d / 2 + (d * 0.72) / 2));
+  // Seat & chaise cushions
+  const cushAreaW = w - 0.32;
+  const cushW = cushAreaW / 3 - 0.02;
+  for (let i = 0; i < 3; i++) {
+    const cx = -w / 2 + 0.16 + cushW / 2 + i * (cushW + 0.02);
+    const segD = i === 2 ? d - 0.20 : mainD - 0.20;
+    const segZ = -d / 2 + 0.18 + segD / 2;
+    root.add(makeBox(cushW, 0.14, segD, matFabricCushion, cx, legH + 0.15 + 0.07, segZ));
+    root.add(makeBox(cushW, 0.32, 0.12, matFabricCushion, cx, legH + 0.45, -d / 2 + 0.24));
+  }
+  root.add(makeBox(0.32, 0.30, 0.11, matPillowsAccent, -w / 2 + 0.36, legH + 0.44, -d / 2 + 0.34));
+  root.add(makeBox(0.32, 0.30, 0.11, matSageAccent, w / 2 - 0.36, legH + 0.44, -d / 2 + 0.34));
+  return root;
+}
+
+// ---------------------------------------------------------------------------
+// 24. KING LUXURY BED (1.95m W x 2.15m D x 1.00m H)
+// ---------------------------------------------------------------------------
+function buildBedKing() {
+  const root = new THREE.Group();
+  const w = 1.95, d = 2.15;
+  root.add(makeBox(w, 0.28, d, matDarkWalnut, 0, 0.14, 0));
+  const hbH = 1.0, hbD = 0.12;
+  root.add(makeBox(w + 0.14, hbH, hbD, matFabricDark, 0, hbH / 2, -d / 2 + hbD / 2));
+  const matW = w - 0.05, matD = d - hbD - 0.05, matH = 0.28;
+  root.add(makeBox(matW, matH, matD, matMattress, 0, 0.28 + matH / 2, hbD / 2));
+  const blkLen = matD * 0.62;
+  root.add(makeBox(matW + 0.02, 0.045, blkLen, matSageAccent, 0, 0.28 + matH + 0.022, hbD / 2 + (matD - blkLen) / 2));
+  // 4 layered pillows
+  const pilW = 0.72, pilD = 0.42, pilH = 0.12;
+  root.add(makeBox(pilW, pilH, pilD, matPillow, -pilW / 2 - 0.06, 0.28 + matH + pilH / 2, -d / 2 + hbD + pilD / 2 + 0.06));
+  root.add(makeBox(pilW, pilH, pilD, matPillow, pilW / 2 + 0.06, 0.28 + matH + pilH / 2, -d / 2 + hbD + pilD / 2 + 0.06));
+  root.add(makeBox(0.55, 0.11, 0.28, matPillowsAccent, -0.44, 0.28 + matH + pilH + 0.04, -d / 2 + hbD + 0.30));
+  root.add(makeBox(0.55, 0.11, 0.28, matPillowsAccent, 0.44, 0.28 + matH + pilH + 0.04, -d / 2 + hbD + 0.30));
+  return root;
+}
+
+// ---------------------------------------------------------------------------
+// 25. LOUNGE ARMCHAIR (0.82m W x 0.82m D x 0.80m H)
+// ---------------------------------------------------------------------------
+function buildArmchair() {
+  const root = new THREE.Group();
+  const w = 0.82, d = 0.82, legH = 0.16;
+  for (const [lx, lz] of [[-0.31, -0.31], [0.31, -0.31], [-0.31, 0.31], [0.31, 0.31]]) {
+    root.add(makeCylinder(0.022, 0.015, legH, 10, matOakWood, lx, legH / 2, lz));
+  }
+  root.add(makeBox(w, 0.14, d, matFabricWarm, 0, legH + 0.07, 0));
+  root.add(makeBox(w, 0.48, 0.14, matFabricWarm, 0, legH + 0.14 + 0.24, -d / 2 + 0.07));
+  root.add(makeBox(0.12, 0.28, d - 0.08, matFabricWarm, -w / 2 + 0.06, legH + 0.28, 0.02));
+  root.add(makeBox(0.12, 0.28, d - 0.08, matFabricWarm, w / 2 - 0.06, legH + 0.28, 0.02));
+  root.add(makeBox(w - 0.26, 0.13, d - 0.18, matFabricCushion, 0, legH + 0.20, 0.06));
+  root.add(makeBox(0.38, 0.26, 0.10, matPillowsAccent, 0, legH + 0.38, -d / 2 + 0.22));
+  return root;
+}
+
+// ---------------------------------------------------------------------------
+// 26. WOVEN AREA RUG (2.40m W x 1.70m D x 0.015m H)
+// ---------------------------------------------------------------------------
+function buildAreaRug() {
+  const root = new THREE.Group();
+  const w = 2.40, d = 1.70;
+  root.add(makeBox(w, 0.012, d, matRugWarm, 0, 0.006, 0));
+  root.add(makeBox(w - 0.24, 0.015, d - 0.24, matFabricCushion, 0, 0.0075, 0));
+  return root;
+}
+
+// ---------------------------------------------------------------------------
+// 27. INDOOR POTTED PLANT (0.45m W x 0.45m D x 1.20m H)
+// ---------------------------------------------------------------------------
+function buildIndoorPlant() {
+  const root = new THREE.Group();
+  root.add(makeCylinder(0.17, 0.12, 0.36, 16, matPorcelain, 0, 0.18, 0));
+  root.add(makeCylinder(0.15, 0.15, 0.02, 16, matDarkWalnut, 0, 0.35, 0));
+  root.add(makeCylinder(0.025, 0.032, 0.56, 10, matDarkWalnut, 0, 0.62, 0));
+  root.add(makeCylinder(0.05, 0.22, 0.44, 14, matPlantLeaf, 0, 0.88, 0));
+  root.add(makeCylinder(0.03, 0.17, 0.36, 12, matPlantLeaf, 0.07, 1.04, 0.05));
+  root.add(makeCylinder(0.03, 0.15, 0.32, 12, matPlantLeaf, -0.08, 0.96, -0.04));
+  return root;
+}
+
 // ===========================================================================
 // MAIN GENERATION RUNNER
 // ===========================================================================
@@ -636,8 +744,13 @@ async function main() {
   const builders = [
     { fn: buildSofa3Seater, name: 'sofa_3seater.glb' },
     { fn: buildSofa2Seater, name: 'sofa_2seater.glb' },
+    { fn: buildSofaLSectional, name: 'sofa_l_sectional.glb' },
+    { fn: buildArmchair, name: 'armchair.glb' },
     { fn: buildCoffeeTable, name: 'coffee_table.glb' },
     { fn: buildTvConsole, name: 'tv_console.glb' },
+    { fn: buildAreaRug, name: 'area_rug.glb' },
+    { fn: buildIndoorPlant, name: 'indoor_plant.glb' },
+    { fn: buildBedKing, name: 'bed_king.glb' },
     { fn: buildBedQueen, name: 'bed_queen.glb' },
     { fn: buildBedSingle, name: 'bed_single.glb' },
     { fn: buildSideTable, name: 'side_table.glb' },

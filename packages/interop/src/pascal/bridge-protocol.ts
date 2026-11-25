@@ -66,6 +66,11 @@ export interface DeleteNodeMessage {
   nodeId: string;
 }
 
+export interface SetPausedMessage {
+  type: 'SET_PAUSED';
+  paused: boolean;
+}
+
 export type HostToStudioMessage =
   | LoadSceneMessage
   | RequestSaveMessage
@@ -78,7 +83,8 @@ export type HostToStudioMessage =
   | SetWalkthroughModeMessage
   | SetMeasureModeMessage
   | UpdateNodeMessage
-  | DeleteNodeMessage;
+  | DeleteNodeMessage
+  | SetPausedMessage;
 
 export interface StudioReadyMessage {
   type: 'STUDIO_READY';
@@ -150,6 +156,7 @@ const HOST_MESSAGE_TYPES: ReadonlySet<string> = new Set<HostToStudioMessage['typ
   'SET_MEASURE_MODE',
   'UPDATE_NODE',
   'DELETE_NODE',
+  'SET_PAUSED',
 ]);
 
 const STUDIO_MESSAGE_TYPES: ReadonlySet<string> = new Set<StudioToHostMessage['type']>([

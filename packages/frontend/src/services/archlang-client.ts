@@ -40,6 +40,53 @@ export interface ArchLangImpactResponse {
   impact: RoomLockImpactAnalysis;
 }
 
+async function postArchLangWithFallback<T>(
+  building: Building,
+  action: 'preview' | 'export' | 'impact',
+  lightPayload: Record<string, unknown>,
+  fullPayload: Record<string, unknown>,
+  errorLabel: string,
+  signal?: AbortSignal
+): Promise<T> {
+  const projectId = building.projectId || building.id;
+  const endpoint = `/api/projects/${encodeURIComponent(projectId)}/archlang/${action}`;
+
+  let res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(lightPayload),
+    signal,
+  });
+
+  if (res.status === 404) {
+    const errBody = await res.json().catch(() => null);
+    if (errBody?.error?.code === 'BUILDING_NOT_FOUND') {
+      // Cache canonical building on backend so future ArchLang requests stay < 500 bytes
+      void fetch(`/api/projects/${encodeURIComponent(projectId)}/canonical`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ building }),
+      }).catch(() => {});
+
+      res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fullPayload),
+        signal,
+      });
+    } else {
+      throw new Error(errBody?.error?.message ?? `${errorLabel} (${res.status})`);
+    }
+  }
+
+  if (!res.ok) {
+    const errorJson = await res.json().catch(() => null);
+    throw new Error(errorJson?.error?.message ?? `${errorLabel} (${res.status})`);
+  }
+
+  return (await res.json()) as T;
+}
+
 /**
  * Requests an in-process ArchLang presentation sheet preview for the selected building & floor.
  */
@@ -48,20 +95,14 @@ export async function fetchArchLangPreview(
   options: ArchLangPreviewOptions = {},
   signal?: AbortSignal
 ): Promise<ArchLangPreviewResponse['preview']> {
-  const projectId = building.projectId || building.id;
-  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/archlang/preview`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ building, ...options }),
-    signal,
-  });
-
-  if (!res.ok) {
-    const errorJson = await res.json().catch(() => null);
-    throw new Error(errorJson?.error?.message ?? `ArchLang preview failed (${res.status})`);
-  }
-
-  const data = (await res.json()) as ArchLangPreviewResponse;
+  const data = await postArchLangWithFallback<ArchLangPreviewResponse>(
+    building,
+    'preview',
+    { ...options },
+    { building, ...options },
+    'ArchLang preview failed',
+    signal
+  );
   return data.preview;
 }
 
@@ -73,20 +114,14 @@ export async function requestArchLangExport(
   options: ArchLangExportOptions = {},
   signal?: AbortSignal
 ): Promise<ArchLangExportResponse> {
-  const projectId = building.projectId || building.id;
-  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/archlang/export`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ building, ...options }),
-    signal,
-  });
-
-  if (!res.ok) {
-    const errorJson = await res.json().catch(() => null);
-    throw new Error(errorJson?.error?.message ?? `ArchLang export failed (${res.status})`);
-  }
-
-  return (await res.json()) as ArchLangExportResponse;
+  return postArchLangWithFallback<ArchLangExportResponse>(
+    building,
+    'export',
+    { ...options },
+    { building, ...options },
+    'ArchLang export failed',
+    signal
+  );
 }
 
 /**
@@ -99,24 +134,13 @@ export async function fetchRoomLockImpact(
   targetRoomId?: string,
   signal?: AbortSignal
 ): Promise<RoomLockImpactAnalysis> {
-  const projectId = building.projectId || building.id;
-  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/archlang/impact`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      building,
-      floorId,
-      lockedRoomIds,
-      targetRoomId,
-    }),
-    signal,
-  });
-
-  if (!res.ok) {
-    const errorJson = await res.json().catch(() => null);
-    throw new Error(errorJson?.error?.message ?? `Room lock impact analysis failed (${res.status})`);
-  }
-
-  const data = (await res.json()) as ArchLangImpactResponse;
+  const data = await postArchLangWithFallback<ArchLangImpactResponse>(
+    building,
+    'impact',
+    { floorId, lockedRoomIds, targetRoomId },
+    { building, floorId, lockedRoomIds, targetRoomId },
+    'Room lock impact analysis failed',
+    signal
+  );
   return data.impact;
 }

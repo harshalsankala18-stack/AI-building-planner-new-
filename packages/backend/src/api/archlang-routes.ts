@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Building } from '@ai-floor-planner/core';
-import { createMockCanonicalBuilding } from '../__fixtures__/canonical-building.js';
+import { getProjectBuilding } from './pascal-scene-routes.js';
 import {
   ArchLangExportService,
   type ArchLangPreviewOptions,
@@ -12,9 +12,14 @@ import { ExportError } from '../services/export-selection.js';
 
 const archLangService = new ArchLangExportService();
 
-function resolveProjectBuilding(projectId: string, explicitBuilding?: Building): Building {
+function resolveProjectBuilding(projectId: string, explicitBuilding?: Building): Building | null {
   if (explicitBuilding && Array.isArray(explicitBuilding.floors) && explicitBuilding.floors.length > 0) {
     return explicitBuilding;
+  }
+
+  const registered = getProjectBuilding(projectId, false);
+  if (registered && Array.isArray(registered.floors) && registered.floors.length > 0) {
+    return registered;
   }
 
   // Look for saved canonical building file
@@ -28,8 +33,9 @@ function resolveProjectBuilding(projectId: string, explicitBuilding?: Building):
     if (fs.existsSync(p)) {
       try {
         const parsed = JSON.parse(fs.readFileSync(p, 'utf8'));
-        if (parsed && Array.isArray(parsed.floors)) {
-          return parsed as Building;
+        const candidate = parsed?.building ?? parsed;
+        if (candidate && Array.isArray(candidate.floors) && candidate.floors.length > 0) {
+          return candidate as Building;
         }
       } catch {
         // continue search
@@ -37,7 +43,7 @@ function resolveProjectBuilding(projectId: string, explicitBuilding?: Building):
     }
   }
 
-  return createMockCanonicalBuilding();
+  return null;
 }
 
 /**

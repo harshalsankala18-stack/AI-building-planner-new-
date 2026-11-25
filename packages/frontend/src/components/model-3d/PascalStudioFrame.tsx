@@ -37,6 +37,7 @@ export interface PascalStudioFrameProps {
   readonly onFallbackToStandard?: () => void;
   readonly reloadKey?: number;
   readonly activeFloorId?: string;
+  readonly paused?: boolean;
 }
 
 export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
@@ -46,6 +47,7 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
   onFallbackToStandard,
   reloadKey,
   activeFloorId,
+  paused = false,
 }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -166,7 +168,19 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
   }, [projectId, postToStudio]);
 
   useEffect(() => {
-    if (activeFloorId && studioReady) {
+    if (studioReady) {
+      postToStudio({ type: 'SET_PAUSED', paused });
+    }
+  }, [paused, studioReady, postToStudio]);
+
+  useEffect(() => {
+    if (studioReady && building) {
+      void loadSceneFromBackend();
+    }
+  }, [studioReady, building?.id, building?.version, building?.updatedAt, loadSceneFromBackend]);
+
+  useEffect(() => {
+    if (activeFloorId && studioReady && levelModeRef.current === 'solo') {
       postToStudio({
         type: 'SELECT_LEVEL',
         levelId: `level_${activeFloorId.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
@@ -219,18 +233,6 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
 
         case 'SCENE_LOADED': {
           setStatusMessage(`Scene loaded (${message.nodeCount} nodes)`);
-          // Default: Isolate active floor + Cutaway walls
-          if (activeFloorIdRef.current) {
-            postToStudio({
-              type: 'SELECT_LEVEL',
-              levelId: `level_${activeFloorIdRef.current.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
-              isolate: levelModeRef.current === 'solo',
-            });
-          }
-          postToStudio({
-            type: 'SET_WALL_MODE',
-            mode: wallModeRef.current,
-          });
           break;
         }
 
@@ -320,6 +322,7 @@ export const PascalStudioFrame: React.FC<PascalStudioFrameProps> = ({
 
   const handleToggleLevelMode = (mode: 'solo' | 'stacked' | 'exploded') => {
     setLevelMode(mode);
+    setWallMode(mode === 'solo' ? 'cutaway' : 'up');
     postToStudio({ type: 'SET_LEVEL_MODE', mode });
     if (mode === 'solo' && activeFloorId) {
       postToStudio({

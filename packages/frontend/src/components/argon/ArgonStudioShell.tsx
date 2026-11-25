@@ -100,6 +100,12 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
         const data = await res.json();
         if (data?.building && !cancelled) {
           editor.setBuilding(data.building, data.building.name);
+          const firstResidential = data.building.floors?.find(
+            (floor: any) => floor.apartmentUnits?.length || !/stilt|parking/i.test(floor.name || ''),
+          );
+          if (firstResidential) {
+            editor.switchFloor(firstResidential.id);
+          }
           setSync3dCount((c) => c + 1);
         }
       } catch {
@@ -473,30 +479,40 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
           />
         )}
 
-        {/* 3. 3D STUDIO (PASCAL EDITABLE OR STANDARD MASSING) */}
-        {workspaceMode === 'studio' && activeTab === '3d-studio' && (
+        {/* 3. 3D STUDIO (KEEP-ALIVE PASCAL STUDIO OR STANDARD MASSING) */}
+        {workspaceMode === 'studio' && studioEngine === 'pascal' && activeTab !== 'split-view' && (
+          <div
+            data-testid="pascal-keepalive-container"
+            aria-hidden={activeTab !== '3d-studio'}
+            className={
+              activeTab === '3d-studio'
+                ? 'flex-1 min-h-0 relative'
+                : 'invisible pointer-events-none absolute inset-0 -z-10 overflow-hidden'
+            }
+          >
+            <PascalStudioFrame
+              projectId={editor.building.projectId}
+              building={editor.building}
+              onBuildingUpdate={(updatedBuilding) => editor.setBuilding(updatedBuilding)}
+              activeFloorId={editor.activeFloor.id}
+              reloadKey={sync3dCount}
+              paused={activeTab !== '3d-studio'}
+              onFallbackToStandard={() => setStudioEngine('standard')}
+            />
+          </div>
+        )}
+        {workspaceMode === 'studio' && activeTab === '3d-studio' && studioEngine !== 'pascal' && (
           <div className="flex-1 min-h-0 relative">
-            {studioEngine === 'pascal' ? (
-              <PascalStudioFrame
-                projectId={editor.building.projectId}
-                building={editor.building}
-                onBuildingUpdate={(updatedBuilding) => editor.setBuilding(updatedBuilding)}
-                activeFloorId={isolateFloor3d ? editor.activeFloor.id : undefined}
-                reloadKey={sync3dCount}
-                onFallbackToStandard={() => setStudioEngine('standard')}
-              />
-            ) : (
-              <ModelWorkspace
-                building={editor.building}
-                activeFloorId={editor.activeFloor.id}
-                selection={editor.selection}
-                onSelectEntity={editor.selectEntity}
-                onClearSelection={editor.clearSelection}
-                onSwitchFloor={editor.switchFloor}
-                onApplyBuilding={editor.applyRefinement}
-                generationControl={editor.generationControl}
-              />
-            )}
+            <ModelWorkspace
+              building={editor.building}
+              activeFloorId={editor.activeFloor.id}
+              selection={editor.selection}
+              onSelectEntity={editor.selectEntity}
+              onClearSelection={editor.clearSelection}
+              onSwitchFloor={editor.switchFloor}
+              onApplyBuilding={editor.applyRefinement}
+              generationControl={editor.generationControl}
+            />
           </div>
         )}
 

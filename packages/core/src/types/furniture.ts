@@ -42,14 +42,21 @@ export type MountType = 'floor' | 'wall' | 'ceiling';
 export type InteriorItemKind =
   | 'sofa_3seater'
   | 'sofa_2seater'
+  | 'sofa_l_sectional'
+  | 'armchair'
   | 'coffee_table'
   | 'tv_console'
+  | 'area_rug'
+  | 'indoor_plant'
+  | 'bed_king'
   | 'bed_queen'
   | 'bed_single'
   | 'side_table'
   | 'wardrobe'
   | 'dining_table_6'
   | 'dining_table_4'
+  | 'dining_chair'
+  | 'study_desk'
   | 'kitchen_counter'
   | 'refrigerator'
   | 'wc_toilet'
@@ -58,7 +65,8 @@ export type InteriorItemKind =
   | 'ceiling_fan'
   | 'ceiling_light_recessed'
   | 'pendant_light'
-  | 'wall_sconce';
+  | 'wall_sconce'
+  | 'car_sedan';
 
 export interface CanonicalFurnitureItem {
   readonly id: string;

@@ -281,7 +281,8 @@ describe('canonicalToPascal Translator', () => {
       const relFile = path.basename(item.asset?.src ?? '');
       expect(fs.existsSync(path.join(glbDir, relFile))).toBe(true);
     }
-    expect(resolveFurnitureAssetKind({ type: 'sectional_sofa' })).toBe('sofa_3seater');
+    expect(resolveFurnitureAssetKind({ type: 'sectional_sofa' })).toBe('sofa_l_sectional');
+    expect(resolveFurnitureAssetKind({ type: 'sofa' })).toBe('sofa_3seater');
     expect(resolveFurnitureAssetKind({ type: 'car' })).toBe('car_sedan');
   });
 });

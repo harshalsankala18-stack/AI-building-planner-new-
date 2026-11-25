@@ -47,8 +47,13 @@ export interface CanonicalToPascalOptions {
 export const KNOWN_FURNITURE_GLB_KINDS = new Set<string>([
   'sofa_3seater',
   'sofa_2seater',
+  'sofa_l_sectional',
+  'armchair',
   'coffee_table',
   'tv_console',
+  'area_rug',
+  'indoor_plant',
+  'bed_king',
   'bed_queen',
   'bed_single',
   'side_table',
@@ -72,14 +77,20 @@ export const KNOWN_FURNITURE_GLB_KINDS = new Set<string>([
 const LEGACY_FURNITURE_KIND_ALIASES: Record<string, string> = {
   sofa_3: 'sofa_3seater',
   sofa: 'sofa_3seater',
-  sectional_sofa: 'sofa_3seater',
-  l_sofa: 'sofa_3seater',
+  sectional_sofa: 'sofa_l_sectional',
+  l_sofa: 'sofa_l_sectional',
   sofa_2: 'sofa_2seater',
   loveseat: 'sofa_2seater',
+  lounge_chair: 'armchair',
+  accent_chair: 'armchair',
+  rug: 'area_rug',
+  carpet: 'area_rug',
+  plant: 'indoor_plant',
+  planter: 'indoor_plant',
   tv_unit: 'tv_console',
   tv_wall_unit: 'tv_console',
   media_console: 'tv_console',
-  king_bed: 'bed_queen',
+  king_bed: 'bed_king',
   queen_bed: 'bed_queen',
   double_bed: 'bed_queen',
   bed: 'bed_queen',
@@ -375,7 +386,7 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
         isSynthesized: false,
       }));
 
-    // Add 1.05m architectural roof parapet around Roof / Terrace perimeter when absent
+    // Add 1.05m architectural roof parapet & staircase mumty around Roof / Terrace perimeter when absent
     const isRoofLevel = floor.floorUse === 'ROOF' || /TERRACE|ROOF/i.test(floor.name);
     if (isRoofLevel && synthesizedWalls.length === 0 && floor.boundary?.points && floor.boundary.points.length >= 3) {
       const bPts = floor.boundary.points;
@@ -391,10 +402,40 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
           endPoint: b,
           thickness: 180,
           heightMm: 1050,
-          wallUse: 'EXTERNAL',
+          wallUse: 'PARAPET' as any,
           roomIds: [],
           canonicalWallId: `${floor.id}_parapet_${i + 1}`,
           isSynthesized: true,
+        });
+      }
+      // Terrace staircase mumty enclosure over ascending stairwell from floor below
+      const belowFloor = building.floors.find(f => f.level === floor.level - 1);
+      const stair = belowFloor?.stairs?.[0];
+      if (stair) {
+        const sx = safeNum(stair.x, 0);
+        const sy = safeNum(stair.y, 0);
+        const sw = safeNum(stair.width, 2400);
+        const sl = safeNum(stair.length, 4800);
+        const mumtyH = 2650;
+        const corners: [Point, Point][] = [
+          [{ x: sx, y: sy }, { x: sx + sw, y: sy }],
+          [{ x: sx + sw, y: sy }, { x: sx + sw, y: sy + sl }],
+          [{ x: sx + sw, y: sy + sl }, { x: sx, y: sy + sl }],
+          [{ x: sx, y: sy + sl }, { x: sx, y: sy }],
+        ];
+        corners.forEach(([p1, p2], idx) => {
+          parapetWalls.push({
+            id: `${floor.id}_mumty_${idx + 1}`,
+            floorId: floor.id,
+            startPoint: p1,
+            endPoint: p2,
+            thickness: 200,
+            heightMm: mumtyH,
+            wallUse: 'EXTERNAL',
+            roomIds: [],
+            canonicalWallId: `${floor.id}_mumty_${idx + 1}`,
+            isSynthesized: true,
+          });
         });
       }
       synthesizedWalls = parapetWalls;
@@ -534,10 +575,10 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
         const isGlassDoor = cat === 'balcony_sliding_glass' || cat === 'french_double_glass';
         const isMainTeakDoor = cat === 'main_entrance' || door.width >= 1050;
         const doorSlots = isGlassDoor
-          ? { panel: '#2D3238', frame: '#2D3238', glass: '#bae6fd', hardware: '#C8A96A' }
+          ? { panel: '#262B31', frame: '#262B31', glass: '#6E94AB', hardware: '#C8A96A' }
           : isMainTeakDoor
-            ? { panel: '#7A4E2D', frame: '#3E2723', hardware: '#D4AF37' }
-            : { panel: '#EDE8DF', frame: '#475569', hardware: '#94A3B8' };
+            ? { panel: '#7B4B2A', frame: '#3E2723', hardware: '#D4AF37' }
+            : { panel: '#D6C2A8', frame: '#5A4A3A', hardware: '#C8A96A' };
 
         const doorNode = DoorNode.parse({
           id: doorId,
@@ -629,9 +670,9 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
           sillHeight: safeNum(sillM, 0.9),
           windowType: pascalWinType,
           slots: {
-            frame: '#2D3238',
-            glass: '#93c5fd',
-            sill: '#CBD5E1',
+            frame: '#262B31',
+            glass: '#6E94AB',
+            sill: '#94A3B8',
             hardware: '#1E293B',
           },
           sill: true,
@@ -669,22 +710,22 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
           return r && r.type === RoomType.Balcony;
         })) && wall.wallUse === 'EXTERNAL');
 
-      const wallHeightM = isBalconyWall ? 1.05 : floorHeightM;
+      const wallHeightM = wall.heightMm ? safeNum(wall.heightMm, floorHeightM * 1000) / 1000 : isBalconyWall ? 1.05 : floorHeightM;
       const wallThicknessM = isBalconyWall ? 0.15 : safeNum(wall.thickness, 230) / 1000;
       const isStiltFloor = floor.floorUse === 'STILT_PARKING' || /STILT/i.test(floor.name);
       const isExternalWall = wallUseStr === 'EXTERNAL' || wallUseStr === 'PARAPET' || wallUseStr === 'BALCONY';
       const exteriorColor = isBalconyWall
-        ? '#CBD5E1'
+        ? '#B8CBD8'
         : isStiltFloor
-          ? '#4A4E54'
+          ? '#4B5159'
           : floor.level % 2 === 1
-            ? '#E6DDD0'
-            : '#DED3C3';
+            ? '#DFD5C5'
+            : '#D7CCB9';
       const hasLivingOrMaster = wall.roomIds?.some((rId) => {
         const r = floor.rooms?.find((rm) => rm.id === rId);
         return r && (r.type === RoomType.Living || /master/i.test(r.name));
       });
-      const interiorColor = isExternalWall ? '#F5F1EA' : hasLivingOrMaster ? '#ECE7DF' : '#F6F3EC';
+      const interiorColor = isExternalWall ? '#F4EFE6' : hasLivingOrMaster ? '#EBE4D8' : '#F4EFE6';
 
       const wallNode = WallNode.parse({
         id: wallId,
@@ -697,13 +738,13 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
         frontSide: isExternalWall ? 'exterior' : 'interior',
         backSide: 'interior',
         exteriorMaterial: {
-          properties: { color: exteriorColor, roughness: 0.82, metalness: 0.02 },
+          properties: { color: exteriorColor, roughness: 0.80, metalness: 0.03 },
         },
         interiorMaterial: {
           properties: { color: interiorColor, roughness: 0.86, metalness: 0.0 },
         },
         material: {
-          properties: { color: isExternalWall ? exteriorColor : interiorColor, roughness: 0.84, metalness: 0.02 },
+          properties: { color: isExternalWall ? exteriorColor : interiorColor, roughness: 0.82, metalness: 0.02 },
         },
         children,
         metadata: {
@@ -712,6 +753,7 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
           roomIds: wall.roomIds,
           isSynthesized: wall.isSynthesized,
           isBalconyRailing: isBalconyWall,
+          fullHeightM: wallHeightM,
         },
       });
 
@@ -860,7 +902,10 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
       if (resolvedKind === 'tv_console') {
         const roomSofa = floorFurniture.find((other) => {
           const ok = resolveFurnitureAssetKind(other as any);
-          return (ok === 'sofa_3seater' || ok === 'sofa_2seater') && (!item.roomId || other.roomId === item.roomId);
+          return (
+            (ok === 'sofa_3seater' || ok === 'sofa_2seater' || ok === 'sofa_l_sectional') &&
+            (!item.roomId || other.roomId === item.roomId)
+          );
         });
         if (roomSofa) {
           const sxM = (safeNum(roomSofa.xMm, roomSofa.positionMm?.x ?? 0) + safeNum(roomSofa.widthMm, 1800) / 2) / 1000;

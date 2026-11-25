@@ -1,5 +1,5 @@
 import React, { Component, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
-import { loadPlugin, useScene } from '@pascal-app/core';
+import { getLevelElevations, loadPlugin, useScene } from '@pascal-app/core';
 import { builtinPlugin } from '@pascal-app/nodes';
 import { Editor, useEditor } from '@pascal-app/editor';
 import { Viewer, useViewer } from '@pascal-app/viewer';
@@ -150,13 +150,35 @@ export const App: React.FC = () => {
   const fullSceneNodesRef = useRef<Record<string, any>>({});
   const activeLevelIdRef = useRef<string | null>(null);
   const currentLevelModeRef = useRef<'solo' | 'stacked' | 'exploded'>('solo');
+  const visualWallModeRef = useRef<'cutaway' | 'up'>('cutaway');
   const onLoadResolverRef = useRef<((scene: any) => void) | null>(null);
   const isHydratingRef = useRef(false);
   const mutationDebounceTimerRef = useRef<any>(null);
   const userEditActiveRef = useRef(false);
   const lastSyncedHashRef = useRef<string>('');
 
+  const applyVisualWallModeToNodes = (nodesMap: Record<string, any>, visualMode: 'cutaway' | 'up') => {
+    const hideCeilings = visualMode === 'cutaway';
+    for (const n of Object.values(nodesMap)) {
+      if (!n || typeof n !== 'object') continue;
+      if ((n as any).type === 'ceiling') {
+        (n as any).visible = !hideCeilings;
+      } else if ((n as any).type === 'wall' || (n as any).type === 'column') {
+        const w = n as any;
+        if (w.metadata?.isBalconyRailing || w.metadata?.wallUse === 'PARAPET') continue;
+        const storedFull = Number(w.metadata?.fullHeightM);
+        const rawH = Number(w.height ?? 3.0);
+        const fullH = Number.isFinite(storedFull) && storedFull > 1.85 ? storedFull : rawH > 1.85 ? rawH : 3.0;
+        w.metadata = { ...(w.metadata ?? {}), fullHeightM: fullH };
+        w.height = visualMode === 'cutaway' ? Math.min(1.65, fullH) : fullH;
+      }
+    }
+  };
+
   const mergeLiveEditsIntoFullScene = (liveNodes: Record<string, any>) => {
+    if (!userEditActiveRef.current && (useScene.getState().dirtyNodes?.size ?? 0) === 0) {
+      return;
+    }
     const full = fullSceneNodesRef.current;
     for (const [nid, liveNode] of Object.entries(liveNodes)) {
       if (!liveNode || (liveNode as any)?.type === 'spawn') continue;
@@ -199,10 +221,10 @@ export const App: React.FC = () => {
     const levels = Object.values(sourceNodes)
       .filter((n: any) => n && n.type === 'level')
       .sort((a: any, b: any) => (a.level ?? 0) - (b.level ?? 0));
-    // Default to 1st floor (index 1) or lowest residential floor if floor 0 is empty stilt, else level 0
+    const defaultResidentialLevel = levels.find((l: any) => !/stilt|parking/i.test(l.name || '')) ?? levels[0];
     const resolvedLevelId =
       (preferredLevelId && sourceNodes[preferredLevelId] ? preferredLevelId : null) ??
-      (levels[0]?.id ?? null);
+      (defaultResidentialLevel?.id ?? null);
 
     let totalItems = 0;
     for (const n of Object.values(sourceNodes)) {
@@ -238,28 +260,32 @@ export const App: React.FC = () => {
       for (const [id, n] of Object.entries(outNodes)) {
         if (!n || n.type === 'site' || n.type === 'building' || n.type === 'level') continue;
         const ownerLvl = resolveOwnerLevel(id);
-        if (!ownerLvl || !inactiveLevelIds.has(ownerLvl)) continue;
+        if (!ownerLvl) continue;
 
         if (mode === 'solo') {
-          // Prune ALL inactive floor children in Solo mode so load mounts 1 floor (~250 nodes instead of 1,350+)
+          if (!inactiveLevelIds.has(ownerLvl)) continue;
+          // Prune ALL inactive floor children in Solo mode so load mounts 1 floor
           removedIds.add(id);
-        } else if (totalItems > 45) {
-          // In All Floors / Exploded mode on multi-story towers, cull inactive floor items AND hidden
-          // internal partition walls (and doors on internal partitions) while keeping 100% of exterior facade walls,
-          // exterior windows/doors, slabs, columns, balconies, and stairs so 5-story exteriors render smoothly!
-          if (n.type === 'item') {
+        } else if (mode === 'stacked' && levels.length > 2) {
+          // Multi-story All Floors exterior view: keep 100% of exterior facade walls/windows/doors,
+          // slabs, columns, stairs, balconies, and terrace parapet/mumty across EVERY floor,
+          // culling hidden indoor furniture, zones, ceilings, and interior partitions for < 2s switching.
+          if (n.type === 'item' || n.type === 'zone' || n.type === 'ceiling') {
             removedIds.add(id);
           } else if (
-            levels.length > 2 &&
-            mode === 'stacked' &&
             n.type === 'wall' &&
             n.metadata?.wallUse !== 'EXTERNAL' &&
+            n.metadata?.wallUse !== 'PARAPET' &&
             !n.metadata?.isBalconyRailing
           ) {
             removedIds.add(id);
             if (Array.isArray(n.children)) {
               for (const childId of n.children) removedIds.add(childId);
             }
+          }
+        } else if (inactiveLevelIds.has(ownerLvl) && totalItems > 45) {
+          if (n.type === 'item' || n.type === 'zone' || n.type === 'ceiling') {
+            removedIds.add(id);
           }
         }
       }
@@ -290,6 +316,17 @@ export const App: React.FC = () => {
         setReady(true);
         const webgpuSupported = typeof navigator !== 'undefined' && Boolean((navigator as any).gpu);
         sendToHost({ type: 'STUDIO_READY', webgpuSupported });
+        // Warm HTTP cache for catalog GLB assets in the background so floor/tower switches clone fast
+        const warmupKinds = [
+          'sofa_3seater', 'sofa_2seater', 'sofa_l_sectional', 'armchair', 'coffee_table', 'tv_console',
+          'area_rug', 'indoor_plant', 'bed_king', 'bed_queen', 'bed_single', 'side_table', 'wardrobe',
+          'dining_table_6', 'dining_table_4', 'dining_chair', 'study_desk', 'kitchen_counter',
+          'refrigerator', 'wc_toilet', 'wash_basin', 'shower_tray', 'ceiling_fan',
+          'ceiling_light_recessed', 'pendant_light', 'wall_sconce', 'car_sedan',
+        ];
+        void Promise.allSettled(
+          warmupKinds.map((k) => fetch(`/pascal-studio/assets/furniture/${k}.glb`, { priority: 'low' } as any)),
+        );
       })
       .catch((err: unknown) => {
         if (!mounted) return;
@@ -312,6 +349,15 @@ export const App: React.FC = () => {
             break;
           }
 
+          case 'SET_PAUSED': {
+            try {
+              useViewer.setState({ renderPaused: Boolean(message.paused) } as any);
+            } catch (e) {
+              console.warn('Could not toggle renderPaused:', e);
+            }
+            break;
+          }
+
           case 'LOAD_SCENE': {
             const { nodes, rootNodeIds } = message.scene;
             fullSceneNodesRef.current = structuredClone(nodes);
@@ -322,13 +368,10 @@ export const App: React.FC = () => {
               currentLevelModeRef.current,
             );
             activeLevelIdRef.current = culled.activeLevelId;
+            visualWallModeRef.current = currentLevelModeRef.current === 'solo' ? 'cutaway' : 'up';
 
-            // Auto-hide ceilings in cutaway mode BEFORE committing scene
-            for (const n of Object.values(culled.nodes)) {
-              if ((n as any).type === 'ceiling') {
-                (n as any).visible = false;
-              }
-            }
+            // Apply 1.65m cutaway walls + ceiling visibility BEFORE committing scene (zero double-build)
+            applyVisualWallModeToNodes(culled.nodes, visualWallModeRef.current);
 
             pendingSceneRef.current = { nodes: culled.nodes, rootNodeIds };
             isHydratingRef.current = true;
@@ -346,7 +389,7 @@ export const App: React.FC = () => {
               useScene.getState().setReadOnly(message.readOnly);
             }
 
-            // Stage F: Bright architectural daylight + default cutaway view + active level isolation
+            // Stage G: Bright daylight + keep Pascal viewer wallMode='up' so WallCutout NEVER hides interior walls
             try {
               useViewer.getState().setProjectPresentation({
                 lighting: {
@@ -356,7 +399,7 @@ export const App: React.FC = () => {
                 exposure: 1.15,
               } as any);
               useViewer.setState({ hideLevelsAboveSelection: false } as any);
-              useViewer.getState().setWallMode('cutaway');
+              useViewer.getState().setWallMode('up');
               if (culled.activeLevelId) {
                 useViewer.getState().setSelection({ levelId: culled.activeLevelId });
                 useViewer.getState().setLevelMode(currentLevelModeRef.current);
@@ -380,22 +423,27 @@ export const App: React.FC = () => {
           case 'SELECT_LEVEL': {
             const levelId = message.levelId;
             if (levelId) {
-              activeLevelIdRef.current = levelId;
               const nextMode = message.isolate !== false ? 'solo' : currentLevelModeRef.current;
+              if (Object.keys(fullSceneNodesRef.current).length === 0) {
+                activeLevelIdRef.current = levelId;
+                currentLevelModeRef.current = nextMode;
+                break;
+              }
+              if (
+                activeLevelIdRef.current === levelId &&
+                currentLevelModeRef.current === nextMode &&
+                Object.keys(useScene.getState().nodes).length > 0
+              ) {
+                break;
+              }
+              activeLevelIdRef.current = levelId;
               currentLevelModeRef.current = nextMode;
 
-              // Merge any live edits on currently mounted nodes back into fullSceneNodesRef before swapping floors
               mergeLiveEditsIntoFullScene(useScene.getState().nodes);
 
               isHydratingRef.current = true;
               const culled = buildActiveCulledNodes(fullSceneNodesRef.current, levelId, nextMode);
-              const wallMode = useViewer.getState().wallMode;
-              const hideCeilings = wallMode === 'cutaway' || wallMode === 'down';
-              for (const n of Object.values(culled.nodes)) {
-                if ((n as any).type === 'ceiling') {
-                  (n as any).visible = !hideCeilings;
-                }
-              }
+              applyVisualWallModeToNodes(culled.nodes, visualWallModeRef.current);
 
               const state = useScene.getState();
               state.setScene(culled.nodes as any, state.rootNodeIds as any);
@@ -408,6 +456,7 @@ export const App: React.FC = () => {
                 if (message.isolate !== false) {
                   useViewer.getState().setLevelMode('solo');
                 }
+                useViewer.getState().setWallMode('up');
               } catch (e) {
                 console.warn('Error setting level selection on viewer:', e);
               }
@@ -424,6 +473,7 @@ export const App: React.FC = () => {
             try {
               const mode = message.mode;
               currentLevelModeRef.current = mode;
+              visualWallModeRef.current = mode === 'solo' ? 'cutaway' : 'up';
               mergeLiveEditsIntoFullScene(useScene.getState().nodes);
               isHydratingRef.current = true;
               const culled = buildActiveCulledNodes(
@@ -431,19 +481,13 @@ export const App: React.FC = () => {
                 activeLevelIdRef.current ?? (useViewer.getState().selection?.levelId ?? null),
                 mode,
               );
-              const wallMode = useViewer.getState().wallMode;
-              const hideCeilings = wallMode === 'cutaway' || wallMode === 'down';
-              for (const n of Object.values(culled.nodes)) {
-                if ((n as any).type === 'ceiling') {
-                  (n as any).visible = !hideCeilings;
-                }
-              }
+              applyVisualWallModeToNodes(culled.nodes, visualWallModeRef.current);
               useScene.getState().setScene(culled.nodes as any, useScene.getState().rootNodeIds as any);
-              // Ensure All Floors / Exploded NEVER leaves upper levels hidden as shadow-only above active floor
               useViewer.setState({
                 hideLevelsAboveSelection: mode === 'solo',
               } as any);
               useViewer.getState().setLevelMode(mode);
+              useViewer.getState().setWallMode('up');
               setTimeout(() => {
                 isHydratingRef.current = false;
                 lastSyncedHashRef.current = computeSceneContentHash(useScene.getState().nodes);
@@ -457,19 +501,26 @@ export const App: React.FC = () => {
 
           case 'SET_WALL_MODE': {
             try {
-              useViewer.getState().setWallMode(message.mode);
+              const visualMode: 'cutaway' | 'up' = message.mode === 'up' ? 'up' : 'cutaway';
+              if (visualWallModeRef.current === visualMode) {
+                useViewer.getState().setWallMode('up');
+                break;
+              }
+              visualWallModeRef.current = visualMode;
               const state = useScene.getState();
-              const shouldHideCeilings = message.mode === 'cutaway' || message.mode === 'down';
-              let modified = false;
-              for (const n of Object.values(state.nodes)) {
-                if (n.type === 'ceiling') {
-                  (n as any).visible = !shouldHideCeilings;
-                  modified = true;
+              const nextNodes: Record<string, any> = {};
+              const dirtyWallIds = new Set<string>(state.dirtyNodes ?? []);
+              for (const [id, raw] of Object.entries(state.nodes)) {
+                if (!raw || typeof raw !== 'object') continue;
+                const clone = { ...(raw as any) };
+                if (clone.type === 'wall' && !(clone.metadata?.isBalconyRailing || clone.metadata?.wallUse === 'PARAPET')) {
+                  dirtyWallIds.add(id);
                 }
+                nextNodes[id] = clone;
               }
-              if (modified) {
-                useScene.setState({ nodes: { ...state.nodes } });
-              }
+              applyVisualWallModeToNodes(nextNodes, visualMode);
+              useScene.setState({ nodes: nextNodes, dirtyNodes: dirtyWallIds });
+              useViewer.getState().setWallMode('up');
             } catch (e) {
               console.warn('Error setting wall mode:', e);
             }
@@ -487,8 +538,11 @@ export const App: React.FC = () => {
                   useViewer.getState().selection?.levelId ??
                   (Object.values(workingNodes).find((n: any) => n.type === 'level') as any)?.id;
 
-                const lvlNode = activeLvlId ? workingNodes[activeLvlId] : null;
-                const baseElevM = Number(lvlNode?.baseElevation ?? 0);
+                const baseElevM = Number(
+                  (activeLvlId ? getLevelElevations(workingNodes).get(activeLvlId)?.baseY : undefined) ??
+                    workingNodes[activeLvlId ?? '']?.baseElevation ??
+                    0,
+                );
 
                 // Find active floor's Living Room zone (fallback to largest non-bath room on active level)
                 const levelZones = Object.values(workingNodes).filter(
@@ -595,41 +649,47 @@ export const App: React.FC = () => {
                   }
                 }
 
-                // Inject native Pascal SpawnNode on active level so banner never renders and
-                // build-collider-world spawns strictly inside the Living Room at eye height (1.65m)
+                // Inject native Pascal SpawnNode parented to BuildingNode (origin y=0) with exact world baseElevM
+                // so both sceneRegistry world position and fallback placedSpawnNode.position resolve to baseElevM + 1.65m
                 const spawnId = 'spawn_living_room';
-                if (activeLvlId && workingNodes[activeLvlId]) {
+                const buildingNodeEntry = Object.values(workingNodes).find((n: any) => n && n.type === 'building') as any;
+                const spawnParentId = buildingNodeEntry?.id ?? activeLvlId;
+                const spawnPosY = buildingNodeEntry ? baseElevM : 0;
+                if (spawnParentId && workingNodes[spawnParentId]) {
                   workingNodes[spawnId] = {
                     id: spawnId,
                     object: 'node',
                     type: 'spawn',
                     name: 'Living Room Walkthrough Spawn',
-                    parentId: activeLvlId,
+                    parentId: spawnParentId,
                     visible: true,
-                    position: [spawnX, 0, spawnZ],
+                    position: [spawnX, spawnPosY, spawnZ],
                     rotation: yawRad,
                     metadata: { autoGenerated: true },
                     children: [],
                   };
-                  const lvlChildren: string[] = Array.isArray(workingNodes[activeLvlId].children)
-                    ? [...workingNodes[activeLvlId].children]
+                  const parentChildren: string[] = Array.isArray(workingNodes[spawnParentId].children)
+                    ? [...workingNodes[spawnParentId].children]
                     : [];
-                  if (!lvlChildren.includes(spawnId)) {
-                    lvlChildren.push(spawnId);
-                    workingNodes[activeLvlId] = {
-                      ...workingNodes[activeLvlId],
-                      children: lvlChildren,
+                  if (!parentChildren.includes(spawnId)) {
+                    parentChildren.push(spawnId);
+                    workingNodes[spawnParentId] = {
+                      ...workingNodes[spawnParentId],
+                      children: parentChildren,
                     };
                   }
                 }
 
                 // Show full-height walls & ceilings for realistic first-person interior view
-                for (const n of Object.values(workingNodes)) {
-                  if ((n as any)?.type === 'ceiling') {
-                    (n as any).visible = true;
-                  }
+                visualWallModeRef.current = 'up';
+                const dirtyUp = new Set<string>(state.dirtyNodes ?? []);
+                for (const [wid, rawW] of Object.entries(workingNodes)) {
+                  if (!rawW || typeof rawW !== 'object') continue;
+                  workingNodes[wid] = { ...(rawW as any) };
+                  if ((rawW as any).type === 'wall') dirtyUp.add(wid);
                 }
-                useScene.setState({ nodes: workingNodes });
+                applyVisualWallModeToNodes(workingNodes, 'up');
+                useScene.setState({ nodes: workingNodes, dirtyNodes: dirtyUp });
 
                 const applyLivingAim = () => {
                   const threeCam = (window as any).__THREE_CAMERA__;
@@ -648,14 +708,17 @@ export const App: React.FC = () => {
                 useViewer.getState().setWallMode('up');
                 useViewer.getState().setWalkthroughMovement('walk');
                 useViewer.getState().setWalkthroughInputMode('desktop');
-                useViewer.getState().setWalkthroughMode(true);
-                try {
-                  useEditor.getState().setFirstPersonMode(true);
-                } catch {
-                  // ignore
-                }
-                setTimeout(applyLivingAim, 120);
-                setTimeout(applyLivingAim, 350);
+                setTimeout(() => {
+                  useViewer.getState().setWalkthroughMode(true);
+                  try {
+                    useEditor.getState().setFirstPersonMode(true);
+                  } catch {
+                    // ignore
+                  }
+                  applyLivingAim();
+                }, 140);
+                setTimeout(applyLivingAim, 260);
+                setTimeout(applyLivingAim, 450);
                 setTimeout(() => {
                   isHydratingRef.current = false;
                   lastSyncedHashRef.current = computeSceneContentHash(useScene.getState().nodes);
@@ -669,19 +732,22 @@ export const App: React.FC = () => {
                   // ignore
                 }
                 useViewer.setState({ hideLevelsAboveSelection: false } as any);
-              useViewer.getState().setWallMode('cutaway');
+                useViewer.getState().setWallMode('up');
+                visualWallModeRef.current = currentLevelModeRef.current === 'solo' ? 'cutaway' : 'up';
                 const state = useScene.getState();
-                const nextNodes = { ...state.nodes };
-                delete nextNodes['spawn_living_room'];
-                for (const n of Object.values(nextNodes)) {
-                  if ((n as any)?.type === 'ceiling') {
-                    (n as any).visible = false;
+                const nextNodes: Record<string, any> = {};
+                const dirtyRestore = new Set<string>(state.dirtyNodes ?? []);
+                for (const [nid, rawN] of Object.entries(state.nodes)) {
+                  if (!rawN || typeof rawN !== 'object' || nid === 'spawn_living_room') continue;
+                  const clone = { ...(rawN as any) };
+                  if (clone.type === 'wall') dirtyRestore.add(nid);
+                  if ((clone.type === 'level' || clone.type === 'building') && Array.isArray(clone.children)) {
+                    clone.children = clone.children.filter((cid: string) => cid !== 'spawn_living_room');
                   }
-                  if ((n as any)?.type === 'level' && Array.isArray((n as any).children)) {
-                    (n as any).children = (n as any).children.filter((cid: string) => cid !== 'spawn_living_room');
-                  }
+                  nextNodes[nid] = clone;
                 }
-                useScene.setState({ nodes: nextNodes });
+                applyVisualWallModeToNodes(nextNodes, visualWallModeRef.current);
+                useScene.setState({ nodes: nextNodes, dirtyNodes: dirtyRestore });
                 setTimeout(() => {
                   isHydratingRef.current = false;
                   lastSyncedHashRef.current = computeSceneContentHash(useScene.getState().nodes);
