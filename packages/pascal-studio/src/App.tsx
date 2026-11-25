@@ -243,9 +243,24 @@ export const App: React.FC = () => {
         if (mode === 'solo') {
           // Prune ALL inactive floor children in Solo mode so load mounts 1 floor (~250 nodes instead of 1,350+)
           removedIds.add(id);
-        } else if (totalItems > 45 && n.type === 'item') {
-          // In All Floors / Exploded mode keep walls, slabs, doors, windows, stairs across all floors; cull interior items
-          removedIds.add(id);
+        } else if (totalItems > 45) {
+          // In All Floors / Exploded mode on multi-story towers, cull inactive floor items AND hidden
+          // internal partition walls (and doors on internal partitions) while keeping 100% of exterior facade walls,
+          // exterior windows/doors, slabs, columns, balconies, and stairs so 5-story exteriors render smoothly!
+          if (n.type === 'item') {
+            removedIds.add(id);
+          } else if (
+            levels.length > 2 &&
+            mode === 'stacked' &&
+            n.type === 'wall' &&
+            n.metadata?.wallUse !== 'EXTERNAL' &&
+            !n.metadata?.isBalconyRailing
+          ) {
+            removedIds.add(id);
+            if (Array.isArray(n.children)) {
+              for (const childId of n.children) removedIds.add(childId);
+            }
+          }
         }
       }
 

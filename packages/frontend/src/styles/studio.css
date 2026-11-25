@@ -1863,21 +1863,78 @@
   line-height: 1.45;
 }
 
-/* Stage F: Fix cramped right inspector wrapping in CAD workspace */
+/* Stage F: Fix right inspector light-mode contrast & cramped wrapping in CAD workspace */
+.argon-shell [data-testid="property-inspector-drawer"],
 .studio-root [data-testid="property-inspector-drawer"] {
   min-width: 300px;
 }
 
+.argon-shell [data-testid="property-inspector-drawer"] .inspector-body,
+.argon-shell [data-testid="property-inspector-drawer"] .inspector-header,
 .studio-root [data-testid="property-inspector-drawer"] .inspector-body,
 .studio-root [data-testid="property-inspector-drawer"] .inspector-header {
   padding: 14px !important;
 }
 
+.argon-shell [data-testid="property-inspector-drawer"] .refinement-control {
+  background: #F8FAFC !important;
+  border: 1px solid #E2E8F0 !important;
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.argon-shell [data-testid="property-inspector-drawer"] .refinement-control-header div span {
+  color: #0F766E !important;
+  font-weight: 800 !important;
+}
+
+.argon-shell [data-testid="property-inspector-drawer"] .refinement-control-header strong,
+.argon-shell [data-testid="property-inspector-drawer"] .inspector-title,
+.argon-shell [data-testid="property-inspector-drawer"] .inspector-section-title,
+.argon-shell [data-testid="property-inspector-drawer"] .form-label {
+  color: #0F172A !important;
+}
+
+.argon-shell [data-testid="property-inspector-drawer"] .refinement-status-grid button,
+.argon-shell [data-testid="property-inspector-drawer"] .refinement-room-picker button,
+.argon-shell [data-testid="property-inspector-drawer"] .refinement-room-actions button {
+  background-color: #FFFFFF !important;
+  color: #0F172A !important;
+  border: 1px solid #CBD5E1 !important;
+  opacity: 1 !important;
+}
+
+.argon-shell [data-testid="property-inspector-drawer"] .refinement-room-picker button.selected,
+.argon-shell [data-testid="property-inspector-drawer"] .refinement-status-grid button.active {
+  background-color: #0F766E !important;
+  color: #FFFFFF !important;
+  border-color: #0F766E !important;
+}
+
+.argon-shell [data-testid="property-inspector-drawer"] input,
+.argon-shell [data-testid="property-inspector-drawer"] select,
+.argon-shell [data-testid="property-inspector-drawer"] textarea {
+  background-color: #FFFFFF !important;
+  color: #0F172A !important;
+  -webkit-text-fill-color: #0F172A !important;
+  border: 1.5px solid #CBD5E1 !important;
+  opacity: 1 !important;
+}
+
+.argon-shell [data-testid="property-inspector-drawer"] input:disabled {
+  background-color: #F8FAFC !important;
+}
+
+.argon-shell [data-testid="property-inspector-drawer"] .refinement-control-header,
 .studio-root [data-testid="property-inspector-drawer"] .refinement-control-header {
   flex-direction: column;
   gap: 6px;
 }
 
+.argon-shell [data-testid="property-inspector-drawer"] .refinement-control-header div,
+.argon-shell [data-testid="property-inspector-drawer"] .form-group,
+.argon-shell [data-testid="property-inspector-drawer"] .inspector-section,
 .studio-root [data-testid="property-inspector-drawer"] .refinement-control-header div,
 .studio-root [data-testid="property-inspector-drawer"] .form-group,
 .studio-root [data-testid="property-inspector-drawer"] .inspector-section {
@@ -1885,6 +1942,10 @@
   width: 100%;
 }
 
+.argon-shell [data-testid="property-inspector-drawer"] .form-label,
+.argon-shell [data-testid="property-inspector-drawer"] .inspector-title,
+.argon-shell [data-testid="property-inspector-drawer"] h2,
+.argon-shell [data-testid="property-inspector-drawer"] strong,
 .studio-root [data-testid="property-inspector-drawer"] .form-label,
 .studio-root [data-testid="property-inspector-drawer"] .inspector-title,
 .studio-root [data-testid="property-inspector-drawer"] h2,
