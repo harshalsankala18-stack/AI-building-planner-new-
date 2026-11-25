@@ -2,6 +2,7 @@ import type { MultiSheetApartmentConfig } from '@ai-floor-planner/core';
 import {
   executeAuditedPlanningPipeline,
   generateApartmentOutcome,
+  withMepEngineering,
   PipelineProgressEmitter,
   type PipelineStageId,
 } from '@ai-floor-planner/planning-engine';
@@ -80,7 +81,10 @@ self.onmessage = async (event: MessageEvent<MultiSheetApartmentConfig>) => {
       return;
     }
     const result = await executeAuditedPlanningPipeline(event.data, progress => self.postMessage({ type: 'progress', progress }));
-    self.postMessage({ type: 'complete', result });
+    const enrichedBuilding = result.building.mepEngineering
+      ? result.building
+      : withMepEngineering(result.building);
+    self.postMessage({ type: 'complete', result: { ...result, building: enrichedBuilding } });
   } catch (error) {
     const outcome = generateApartmentOutcome(event.data);
     if (outcome.status === 'PLAN') {

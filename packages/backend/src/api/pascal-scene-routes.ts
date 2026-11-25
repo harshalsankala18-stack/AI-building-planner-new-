@@ -93,14 +93,23 @@ export async function handlePascalSceneRoute(
   const method = request.method ?? 'GET';
   const pathname = url.pathname;
 
-  // Match: PUT /api/projects/:projectId/canonical
+  // Match: GET or PUT /api/projects/:projectId/canonical
   const canonicalMatch = pathname.match(/^\/api\/projects\/([^/]+)\/canonical$/);
   if (canonicalMatch) {
-    if (method !== 'PUT') {
-      sendJson(response, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Use PUT for registering canonical building.' } });
+    const projectId = decodeURIComponent(canonicalMatch[1]!);
+    if (method === 'GET') {
+      const building = getProjectBuilding(projectId, false);
+      if (!building) {
+        sendJson(response, 404, { error: { code: 'NOT_FOUND', message: `Project '${projectId}' canonical building not found.` } });
+      } else {
+        sendJson(response, 200, { projectId, building });
+      }
       return true;
     }
-    const projectId = decodeURIComponent(canonicalMatch[1]!);
+    if (method !== 'PUT') {
+      sendJson(response, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Use GET or PUT for canonical building.' } });
+      return true;
+    }
     let body: any;
     try {
       const raw = await readBody(request, 20 * 1024 * 1024);

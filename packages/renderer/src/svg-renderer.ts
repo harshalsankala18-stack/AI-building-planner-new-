@@ -607,7 +607,7 @@ function renderDoors(floor: Floor, transform: ViewTransform): string {
         `<g data-entity-type="door" data-entity-id="${door.id}" data-door-type="open_passage" data-door-tag="${tag}" transform="${tr}">
   <title>Open passage - no door leaf (${tag})</title>
   <line x1="${(-halfW).toFixed(1)}" y1="0" x2="${halfW.toFixed(1)}" y2="0" stroke="#94a3b8" stroke-width="0.75" stroke-dasharray="3,3"/>
-  <text x="0" y="-4" font-size="7" fill="#64748b" font-weight="bold" text-anchor="middle">${tag}</text>
+  <text data-fixed-annotation="true" x="0" y="-4" font-size="7" fill="#64748b" font-weight="bold" text-anchor="middle">${tag}</text>
 </g>`,
       );
     } else if (door.type === DoorType.Sliding) {
@@ -618,7 +618,7 @@ function renderDoors(floor: Floor, transform: ViewTransform): string {
   <line x1="0" y1="2" x2="${halfW.toFixed(1)}" y2="2" stroke="#0066cc" stroke-width="1.2"/>
   <polygon points="-6,-3 -2,-1 -6,1" fill="#0066cc"/>
   <polygon points="6,1 2,3 6,5" fill="#0066cc"/>
-  <text x="0" y="-5" font-size="7" fill="#0284c7" font-weight="bold" text-anchor="middle">${tag}</text>
+  <text data-fixed-annotation="true" x="0" y="-5" font-size="7" fill="#0284c7" font-weight="bold" text-anchor="middle">${tag}</text>
 </g>`,
       );
     } else if (door.type === DoorType.Double) {
@@ -630,7 +630,7 @@ function renderDoors(floor: Floor, transform: ViewTransform): string {
   <line class="door-leaf" x1="${halfW.toFixed(1)}" y1="0" x2="${halfW.toFixed(1)}" y2="${(swingSign * leafW).toFixed(1)}" stroke="#0066cc" stroke-width="0.8"/>
   <path class="door-swing-arc" d="M ${(-halfW).toFixed(1)} ${(swingSign * leafW).toFixed(1)} A ${leafW.toFixed(1)} ${leafW.toFixed(1)} 0 0 ${swingSign > 0 ? 0 : 1} 0 0" fill="none" stroke="#0066cc" stroke-width="0.5" stroke-dasharray="2,2"/>
   <path class="door-swing-arc" d="M ${halfW.toFixed(1)} ${(swingSign * leafW).toFixed(1)} A ${leafW.toFixed(1)} ${leafW.toFixed(1)} 0 0 ${swingSign > 0 ? 1 : 0} 0 0" fill="none" stroke="#0066cc" stroke-width="0.5" stroke-dasharray="2,2"/>
-  <text x="0" y="${(swingSign * (leafW + 7)).toFixed(1)}" font-size="7" fill="#0284c7" font-weight="bold" text-anchor="middle">${tag}</text>
+  <text data-fixed-annotation="true" x="0" y="${(swingSign * (leafW + 7)).toFixed(1)}" font-size="7" fill="#0284c7" font-weight="bold" text-anchor="middle">${tag}</text>
 </g>`,
       );
     } else if (door.type === DoorType.Folding) {
@@ -638,7 +638,7 @@ function renderDoors(floor: Floor, transform: ViewTransform): string {
         `<g data-entity-type="door" data-entity-id="${door.id}" data-door-type="${door.type}" data-door-tag="${tag}" transform="${tr}" class="door-group" style="cursor: pointer;">
   <title>Folding Door ${door.id} (${tag})</title>
   <polyline points="${(-halfW).toFixed(1)},0 ${(-halfW / 2).toFixed(1)},${(swingSign * 6).toFixed(1)} 0,0 ${(halfW / 2).toFixed(1)},${(swingSign * 6).toFixed(1)} ${halfW.toFixed(1)},0" fill="none" stroke="#0066cc" stroke-width="0.8"/>
-  <text x="0" y="${(swingSign * 10).toFixed(1)}" font-size="7" fill="#0284c7" font-weight="bold" text-anchor="middle">${tag}</text>
+  <text data-fixed-annotation="true" x="0" y="${(swingSign * 10).toFixed(1)}" font-size="7" fill="#0284c7" font-weight="bold" text-anchor="middle">${tag}</text>
 </g>`,
       );
     } else {
@@ -648,7 +648,7 @@ function renderDoors(floor: Floor, transform: ViewTransform): string {
   <title>Single Door ${door.id} (${tag})</title>
   <path class="door-leaf" d="M ${(-halfW).toFixed(0)} 0 L ${(-halfW).toFixed(0)} ${(swingSign * scaledWidth).toFixed(0)}" stroke="#0066cc" stroke-width="0.8"/>
   <path class="door-swing-arc" d="M ${(-halfW).toFixed(1)} ${(swingSign * scaledWidth).toFixed(1)} A ${scaledWidth.toFixed(1)} ${scaledWidth.toFixed(1)} 0 0 ${swingSign > 0 ? 0 : 1} ${halfW.toFixed(1)} 0" fill="none" stroke="#0066cc" stroke-width="0.5" stroke-dasharray="2,2"/>
-  <text x="${(-halfW / 2).toFixed(1)}" y="${(swingSign * (scaledWidth * 0.4 + 4)).toFixed(1)}" font-size="7" fill="#0284c7" font-weight="bold" text-anchor="middle">${tag}</text>
+  <text data-fixed-annotation="true" x="${(-halfW / 2).toFixed(1)}" y="${(swingSign * (scaledWidth * 0.4 + 4)).toFixed(1)}" font-size="7" fill="#0284c7" font-weight="bold" text-anchor="middle">${tag}</text>
 </g>`,
       );
     }
@@ -760,7 +760,7 @@ function renderWindows(floor: Floor, transform: ViewTransform, includeChajjas = 
   <line x1="${(-halfW).toFixed(1)}" y1="0" x2="${halfW.toFixed(1)}" y2="0" stroke="#0284c7" stroke-width="0.65" stroke-dasharray="3,2"/>
   <line x1="${(-halfW).toFixed(1)}" y1="${glassOffset.toFixed(1)}" x2="${halfW.toFixed(1)}" y2="${glassOffset.toFixed(1)}" stroke="#38bdf8" stroke-width="0.9"/>
   <!-- Schedule Tag -->
-  <text x="0" y="${(-halfThick - 3).toFixed(1)}" font-size="7" fill="#0284c7" font-weight="bold" text-anchor="middle">${winTag}</text>
+  <text data-fixed-annotation="true" x="0" y="${(-halfThick - 4).toFixed(1)}" font-size="7" fill="#0284c7" font-weight="bold" text-anchor="middle">${winTag}</text>
 </g>`,
     );
   }
@@ -1300,6 +1300,9 @@ export function exportSVG(
 export function resolveSvgAnnotations(svg: string): string {
   const layout = new AnnotationLayout();
   return svg.replace(/<text\b([^>]*)>([^<]*)<\/text>/g, (original, attributes: string, content: string) => {
+    if (attributes.includes('data-fixed-annotation="true"')) {
+      return original;
+    }
     const x = Number(attributes.match(/\bx="([^"]+)"/)?.[1]);
     const y = Number(attributes.match(/\by="([^"]+)"/)?.[1]);
     const h = Number(attributes.match(/font-size="([^"]+)"/)?.[1] ?? 10);

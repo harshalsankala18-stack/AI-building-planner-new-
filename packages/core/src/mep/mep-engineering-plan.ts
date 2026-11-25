@@ -35,7 +35,7 @@ export type MepSymbolKind =
   // Plumbing fixtures (M-PLUMB-FIXT)
   | 'PLUMB_SHAFT' | 'FT' | 'NT'
   // Fire safety (F-FIRE-SYMB)
-  | 'FHR' | 'FHR_HR' | 'FACP' | 'SD' | 'HD' | 'EXIT_SIGN' | 'SPRINKLER';
+  | 'FHR' | 'FHR_HR' | 'FACP' | 'SD' | 'HD' | 'EXIT_SIGN' | 'SPRINKLER' | 'FE';
 
 export type MepEngineeringCadLayer =
   | 'M-ELEC-SYMB'
@@ -44,6 +44,8 @@ export type MepEngineeringCadLayer =
   | 'M-PLUMB-FIXT'
   | 'A-CEIL-GRID'
   | 'F-FIRE-SYMB'
+  | 'F-FIRE-PIPE'
+  | 'F-FIRE-EGRESS'
   | 'S-BEAM-CANTILEVER';
 
 export interface MepSymbol {
@@ -60,7 +62,16 @@ export interface MepSymbol {
   readonly label: string;
 }
 
-export type MepPipeKind = 'CWS' | 'HWS' | 'SP' | 'WP' | 'WIRING_LOOP';
+export type MepPipeKind =
+  | 'CWS'
+  | 'HWS'
+  | 'SP'
+  | 'WP'
+  | 'WIRING_LOOP'
+  | 'WIRING_POWER'
+  | 'WIRING_AC'
+  | 'FIRE_PIPE'
+  | 'FIRE_EGRESS';
 
 export interface MepRun {
   readonly id: string;
@@ -68,6 +79,9 @@ export interface MepRun {
   readonly discipline: MepDiscipline;
   readonly layer: MepEngineeringCadLayer;
   readonly diameterMm?: number;
+  readonly circuitId?: string;
+  readonly label?: string;
+  readonly egressDistanceM?: number;
   readonly points: readonly Point2D[];
   readonly roomId?: string;
 }
@@ -127,6 +141,8 @@ export const MEP_CAD_LAYER_COLORS: Readonly<Record<MepEngineeringCadLayer, numbe
   'M-PLUMB-FIXT': 140,
   'A-CEIL-GRID': 253,
   'F-FIRE-SYMB': 10,
+  'F-FIRE-PIPE': 10,
+  'F-FIRE-EGRESS': 90,
   'S-BEAM-CANTILEVER': 210,
 };
 
@@ -136,5 +152,5 @@ export const OVERLAY_LAYERS: Readonly<Record<EngineeringOverlay, readonly MepEng
   ELECTRICAL: ['M-ELEC-SYMB', 'M-ELEC-WIRE'],
   PLUMBING: ['M-PLUMB-PIPE', 'M-PLUMB-FIXT'],
   FALSE_CEILING: ['A-CEIL-GRID'],
-  FIRE_SAFETY: ['F-FIRE-SYMB'],
+  FIRE_SAFETY: ['F-FIRE-SYMB', 'F-FIRE-PIPE', 'F-FIRE-EGRESS'],
 };

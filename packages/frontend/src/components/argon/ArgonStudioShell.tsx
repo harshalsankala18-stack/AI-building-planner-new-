@@ -86,6 +86,31 @@ export const ArgonStudioShell: React.FC<ArgonStudioShellProps> = ({
     return unsub;
   }, []);
 
+  // Support deep-link `/studio?project=<id>` project switching cleanly
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const reqProjectId = new URLSearchParams(window.location.search).get('project');
+    if (!reqProjectId || reqProjectId === editor.building.projectId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        projectStorage.setActiveProjectId(reqProjectId);
+        const res = await fetch(`/api/projects/${encodeURIComponent(reqProjectId)}/canonical`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (data?.building && !cancelled) {
+          editor.setBuilding(data.building, data.building.name);
+          setSync3dCount((c) => c + 1);
+        }
+      } catch {
+        // ignore fetch errors
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editor.building.projectId]);
+
   // Compute live compliance score once for top bar
   const complianceScore = useMemo(() => {
     try {

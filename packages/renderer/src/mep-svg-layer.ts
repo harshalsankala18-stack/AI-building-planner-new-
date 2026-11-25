@@ -221,33 +221,51 @@ function renderCantileverBeams(
 function renderMepRuns(
   runs: readonly MepRun[],
   transform: ViewTransform,
-  disciplineFilter: 'ELECTRICAL' | 'PLUMBING',
+  disciplineFilter: 'ELECTRICAL' | 'PLUMBING' | 'FIRE',
 ): string {
   const matched = runs.filter((r) => r.discipline === disciplineFilter && r.points.length >= 2);
   if (matched.length === 0) return '';
 
   const colorByKind: Record<MepRun['kind'], { stroke: string; dash: string; width: number }> = {
-    WIRING_LOOP: { stroke: '#d97706', dash: '4,3', width: 1.1 },
+    WIRING_LOOP: { stroke: '#d97706', dash: '4,3', width: 1.2 },
+    WIRING_POWER: { stroke: '#0284c7', dash: '6,2', width: 1.3 },
+    WIRING_AC: { stroke: '#0d9488', dash: '2,2', width: 1.2 },
     CWS: { stroke: '#0284c7', dash: '', width: 1.3 },
     HWS: { stroke: '#ea580c', dash: '5,2', width: 1.3 },
     SP: { stroke: '#7c2d12', dash: '', width: 2.0 },
     WP: { stroke: '#0d9488', dash: '3,2', width: 1.4 },
+    FIRE_PIPE: { stroke: '#dc2626', dash: '6,3', width: 1.6 },
+    FIRE_EGRESS: { stroke: '#16a34a', dash: '7,4', width: 2.1 },
   };
 
+  const defs =
+    disciplineFilter === 'FIRE'
+      ? `<defs><marker id="fire-egress-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#16a34a"/></marker></defs>`
+      : '';
+
   const elements = matched.map((run) => {
-    const st = colorByKind[run.kind];
-    const pts = run.points
-      .map((p) => {
-        const sp = worldToScreen(p, transform);
-        return `${sp.x.toFixed(1)},${sp.y.toFixed(1)}`;
-      })
-      .join(' ');
+    const st = colorByKind[run.kind] ?? colorByKind.WIRING_LOOP;
+    const screenPts = run.points.map((p) => worldToScreen(p, transform));
+    const pts = screenPts.map((sp) => `${sp.x.toFixed(1)},${sp.y.toFixed(1)}`).join(' ');
     const dashAttr = st.dash ? ` stroke-dasharray="${st.dash}"` : '';
-    return `<polyline points="${pts}" fill="none" stroke="${st.stroke}" stroke-width="${st.width}"${dashAttr} stroke-opacity="0.88" data-layer="${escapeXml(run.layer)}" data-pipe-kind="${escapeXml(run.kind)}"/>`;
+    const markerAttr = run.kind === 'FIRE_EGRESS' ? ' marker-end="url(#fire-egress-arrow)"' : '';
+    const midPt = screenPts[Math.floor(screenPts.length / 2)]!;
+    const tagText =
+      run.kind === 'FIRE_EGRESS' && run.egressDistanceM
+        ? `<text data-fixed-annotation="true" x="${midPt.x.toFixed(1)}" y="${(midPt.y - 5).toFixed(1)}" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="6.5" font-weight="700" fill="#15803d">EGRESS ${run.egressDistanceM}m</text>`
+        : run.circuitId
+          ? `<text data-fixed-annotation="true" x="${midPt.x.toFixed(1)}" y="${(midPt.y - 4).toFixed(1)}" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="6" font-weight="700" fill="${st.stroke}">${escapeXml(run.circuitId)}</text>`
+          : '';
+    return `<polyline points="${pts}" fill="none" stroke="${st.stroke}" stroke-width="${st.width}"${dashAttr}${markerAttr} stroke-opacity="0.9" data-layer="${escapeXml(run.layer)}" data-pipe-kind="${escapeXml(run.kind)}"/>${tagText}`;
   });
 
-  const layerName = disciplineFilter === 'ELECTRICAL' ? 'M-ELEC-WIRE' : 'M-PLUMB-PIPE';
-  return `<g class="cad-layer-${layerName}" data-layer="${layerName}" pointer-events="none">${elements.join('\n')}</g>`;
+  const layerName =
+    disciplineFilter === 'ELECTRICAL'
+      ? 'M-ELEC-WIRE'
+      : disciplineFilter === 'FIRE'
+        ? 'F-FIRE-PIPE'
+        : 'M-PLUMB-PIPE';
+  return `<g class="cad-layer-${layerName}" data-layer="${layerName}" pointer-events="none">${defs}${elements.join('\n')}</g>`;
 }
 
 function renderMepSymbols(
@@ -337,6 +355,11 @@ function renderMepSymbols(
           <circle cx="0" cy="0" r="3" fill="none" stroke="#dc2626" stroke-width="1.1"/>
           <circle cx="0" cy="0" r="1.1" fill="#dc2626"/>
         </g>`;
+      case 'FE':
+        return `<g data-mep-kind="FE" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
+          <circle cx="0" cy="0" r="5" fill="#dc2626" stroke="#7f1d1d" stroke-width="1"/>
+          <text data-fixed-annotation="true" x="0" y="2" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="5.5" font-weight="800" fill="#ffffff">FE</text>
+        </g>`;
     }
   });
 
@@ -414,6 +437,7 @@ export function renderMepOverlays(
     chunks.push(renderMepSymbols(floorMep.symbols, transform, 'PLUMBING'));
   }
   if (disciplines.FIRE_SAFETY) {
+    chunks.push(renderMepRuns(floorMep.runs, transform, 'FIRE'));
     chunks.push(renderMepSymbols(floorMep.symbols, transform, 'FIRE'));
   }
 

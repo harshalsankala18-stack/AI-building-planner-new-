@@ -41,7 +41,7 @@ import {
 } from '@ai-floor-planner/geometry-engine';
 import { fitFloorToViewport, rememberFloorCamera, restoreOrFitFloorCamera } from '../../services/floor-camera';
 import type { WorkspaceLayer } from '../workspace/BuildingNavigator';
-import type { MultiSheetApartmentResult } from '@ai-floor-planner/planning-engine';
+import { withMepEngineering, type MultiSheetApartmentResult } from '@ai-floor-planner/planning-engine';
 
 export interface ArchitecturalCanvasProps {
   editor?: EditorContextValue;
@@ -307,11 +307,29 @@ export const ArchitecturalCanvas: React.FC<ArchitecturalCanvasProps> = ({
     rememberFloorCamera(cameraByFloorRef.current, previousFloorIdRef.current, transform);
   }, [transform]);
 
+  // Ensure MEP/Electrical/Fire Safety engineering overlays exist even on pre-Stage-F persisted buildings
+  const buildingForRender = useMemo(() => {
+    const anyDiscipline =
+      disciplines &&
+      (disciplines.ELECTRICAL ||
+        disciplines.FIRE_SAFETY ||
+        disciplines.PLUMBING ||
+        disciplines.STRUCTURAL ||
+        disciplines.FALSE_CEILING);
+    if (!anyDiscipline) return editor.building;
+    const hasEnhancedMep =
+      editor.building.mepEngineering?.floors?.some((fl) =>
+        fl.runs.some((r) => r.kind === 'FIRE_EGRESS' || r.kind === 'WIRING_POWER'),
+      ) ?? false;
+    if (hasEnhancedMep) return editor.building;
+    return withMepEngineering(editor.building);
+  }, [editor.building, disciplines]);
+
   // Render Base SVG from Authoritative Renderer using current transform
   const svgContent = useMemo(() => {
     return renderFloor(
       editor.activeFloor,
-      editor.building,
+      buildingForRender,
       transform,
       viewportSize.width,
       viewportSize.height,
@@ -334,7 +352,7 @@ export const ArchitecturalCanvas: React.FC<ArchitecturalCanvasProps> = ({
         disciplines,
       },
     );
-  }, [editor.activeFloor, editor.building, transform, viewportSize.width, viewportSize.height, layers, currentTab, showFurniture, entityLayers, disciplines]);
+  }, [editor.activeFloor, buildingForRender, transform, viewportSize.width, viewportSize.height, layers, currentTab, showFurniture, entityLayers, disciplines]);
 
   // Screen to World Conversion using Authoritative transform
   const getScreenToWorld = useCallback((screenX: number, screenY: number) => {

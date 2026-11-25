@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import {
   SiteNode,
@@ -12,7 +14,11 @@ import {
   StairNode,
   StairSegmentNode,
 } from '@pascal-app/core';
-import { canonicalToPascal } from '../pascal/canonical-to-pascal.js';
+import {
+  canonicalToPascal,
+  KNOWN_FURNITURE_GLB_KINDS,
+  resolveFurnitureAssetKind,
+} from '../pascal/canonical-to-pascal.js';
 import { canonicalToArchLang } from '../archlang/canonical-to-archlang.js';
 import { createMockCanonicalBuilding } from '../__fixtures__/canonical-building.js';
 import { WallType, RoomType, Direction, StairType, type Building } from '@ai-floor-planner/core';
@@ -240,5 +246,42 @@ describe('canonicalToPascal Translator', () => {
       expect(dslSource).toContain('plan');
       expect(dslSource).toContain(floor.name);
     }
+
+    // Stage F: SiteNode visible=false suppresses intersecting Pascal cream ground plane, and Roof gets parapet walls
+    const siteNode = Object.values(scene.nodes).find((n) => n.type === 'site');
+    expect(siteNode?.visible).toBe(false);
+    const terraceLevel = levelNodes.find((l: any) => l.name === 'Rooftop Terrace') as any;
+    const terraceWalls = Object.values(scene.nodes).filter(
+      (n) => n.type === 'wall' && n.parentId === terraceLevel.id,
+    );
+    expect(terraceWalls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('normalizes legacy furniture types onto verified offline GLB files and avoids item.glb 404s', () => {
+    const glbDir = path.resolve(__dirname, '../../../pascal-studio/public/assets/furniture');
+    for (const kind of KNOWN_FURNITURE_GLB_KINDS) {
+      expect(fs.existsSync(path.join(glbDir, `${kind}.glb`))).toBe(true);
+    }
+
+    const building = createMockCanonicalBuilding() as any;
+    const floor = building.floors[0];
+    floor.furniture = [
+      { id: 'f1', type: 'sectional_sofa', label: 'Living Sofa', xMm: 1000, yMm: 1000, widthMm: 2100, depthMm: 850, heightMm: 820 },
+      { id: 'f2', type: 'car', label: 'Sedan Car', xMm: 2000, yMm: 2000, widthMm: 1850, depthMm: 4300, heightMm: 1450 },
+      { id: 'f3', type: 'toilet', label: 'WC', xMm: 3000, yMm: 1000, widthMm: 400, depthMm: 680, heightMm: 760 },
+      { id: 'f4', type: 'counter', label: 'Kitchen Counter', xMm: 4000, yMm: 1000, widthMm: 2200, depthMm: 600, heightMm: 860 },
+      { id: 'f5', type: 'desk', label: 'Study Desk', xMm: 4000, yMm: 3000, widthMm: 1200, depthMm: 600, heightMm: 750 },
+    ];
+
+    const { scene } = canonicalToPascal(building);
+    const itemNodes = Object.values(scene.nodes).filter((n: any) => n.type === 'item') as any[];
+    expect(itemNodes.length).toBe(5);
+    for (const item of itemNodes) {
+      expect(item.asset?.src).not.toContain('item.glb');
+      const relFile = path.basename(item.asset?.src ?? '');
+      expect(fs.existsSync(path.join(glbDir, relFile))).toBe(true);
+    }
+    expect(resolveFurnitureAssetKind({ type: 'sectional_sofa' })).toBe('sofa_3seater');
+    expect(resolveFurnitureAssetKind({ type: 'car' })).toBe('car_sedan');
   });
 });

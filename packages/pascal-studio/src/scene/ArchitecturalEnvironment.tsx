@@ -2,18 +2,25 @@ import React, { useMemo, useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useScene } from '@pascal-app/core';
-import { useViewer } from '@pascal-app/viewer';
+import { SceneGroundReplacement, useViewer } from '@pascal-app/viewer';
+
+let cachedGrassMaps: {
+  colorMap: THREE.CanvasTexture;
+  roughnessMap: THREE.CanvasTexture;
+} | null = null;
 
 /**
- * Procedurally generates a high-resolution PBR Grass texture (1024x1024)
- * with multi-tone emerald/meadow turf variations, subtle grain, and organic mowing patterns.
+ * Procedurally generates a cached PBR Grass texture (512x512 tiled)
+ * with multi-tone emerald/meadow turf variations and subtle mowing bands.
  * 100% offline, zero network requests.
  */
 function createProceduralGrassTexture(): {
   colorMap: THREE.CanvasTexture;
   roughnessMap: THREE.CanvasTexture;
 } {
-  const size = 1024;
+  if (cachedGrassMaps) return cachedGrassMaps;
+
+  const size = 512;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -24,15 +31,15 @@ function createProceduralGrassTexture(): {
   ctx.fillRect(0, 0, size, size);
 
   // 2. Large organic sunlight & shade patches
-  const gradient = ctx.createRadialGradient(size * 0.35, size * 0.35, 50, size * 0.5, size * 0.5, size * 0.7);
-  gradient.addColorStop(0, 'rgba(76, 175, 80, 0.45)'); // sunlit lime
-  gradient.addColorStop(0.5, 'rgba(56, 142, 60, 0.25)'); // rich forest
-  gradient.addColorStop(1, 'rgba(27, 94, 32, 0.4)'); // deep emerald
+  const gradient = ctx.createRadialGradient(size * 0.35, size * 0.35, 30, size * 0.5, size * 0.5, size * 0.7);
+  gradient.addColorStop(0, 'rgba(76, 175, 80, 0.42)');
+  gradient.addColorStop(0.5, 'rgba(56, 142, 60, 0.25)');
+  gradient.addColorStop(1, 'rgba(27, 94, 32, 0.38)');
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, size, size);
 
-  // 3. Subtle architectural lawn striping (alternating mowing bands)
-  const stripeWidth = 64;
+  // 3. Subtle architectural lawn striping
+  const stripeWidth = 32;
   for (let x = 0; x < size; x += stripeWidth * 2) {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
     ctx.fillRect(x, 0, stripeWidth, size);
@@ -41,7 +48,6 @@ function createProceduralGrassTexture(): {
   // 4. Fine noise & grass blade speckles
   const imgData = ctx.getImageData(0, 0, size, size);
   const data = imgData.data;
-  // Seeded pseudo-random noise
   let seed = 42;
   const rnd = () => {
     seed = (seed * 1664525 + 1013904223) % 4294967296;
@@ -49,29 +55,29 @@ function createProceduralGrassTexture(): {
   };
 
   for (let i = 0; i < data.length; i += 4) {
-    const n = (rnd() - 0.5) * 28;
-    data[i] = Math.max(10, Math.min(255, data[i]! + n * 0.7)); // R
-    data[i + 1] = Math.max(40, Math.min(255, data[i + 1]! + n * 1.3)); // G
-    data[i + 2] = Math.max(10, Math.min(255, data[i + 2]! + n * 0.5)); // B
+    const n = (rnd() - 0.5) * 26;
+    data[i] = Math.max(10, Math.min(255, data[i]! + n * 0.7));
+    data[i + 1] = Math.max(40, Math.min(255, data[i + 1]! + n * 1.25));
+    data[i + 2] = Math.max(10, Math.min(255, data[i + 2]! + n * 0.5));
   }
   ctx.putImageData(imgData, 0, 0);
 
   const colorMap = new THREE.CanvasTexture(canvas);
   colorMap.wrapS = THREE.RepeatWrapping;
   colorMap.wrapT = THREE.RepeatWrapping;
-  colorMap.repeat.set(48, 48);
+  colorMap.repeat.set(32, 32);
   colorMap.colorSpace = THREE.SRGBColorSpace;
 
-  // Roughness canvas: matte grass with subtle specular variations
+  const roughSize = 256;
   const roughCanvas = document.createElement('canvas');
-  roughCanvas.width = 512;
-  roughCanvas.height = 512;
+  roughCanvas.width = roughSize;
+  roughCanvas.height = roughSize;
   const rCtx = roughCanvas.getContext('2d')!;
-  rCtx.fillStyle = '#dcdcdc'; // ~0.86 roughness
-  rCtx.fillRect(0, 0, 512, 512);
-  const rImg = rCtx.getImageData(0, 0, 512, 512);
+  rCtx.fillStyle = '#dcdcdc';
+  rCtx.fillRect(0, 0, roughSize, roughSize);
+  const rImg = rCtx.getImageData(0, 0, roughSize, roughSize);
   for (let i = 0; i < rImg.data.length; i += 4) {
-    const val = 210 + Math.floor(rnd() * 35);
+    const val = 212 + Math.floor(rnd() * 30);
     rImg.data[i] = val;
     rImg.data[i + 1] = val;
     rImg.data[i + 2] = val;
@@ -81,9 +87,10 @@ function createProceduralGrassTexture(): {
   const roughnessMap = new THREE.CanvasTexture(roughCanvas);
   roughnessMap.wrapS = THREE.RepeatWrapping;
   roughnessMap.wrapT = THREE.RepeatWrapping;
-  roughnessMap.repeat.set(48, 48);
+  roughnessMap.repeat.set(32, 32);
 
-  return { colorMap, roughnessMap };
+  cachedGrassMaps = { colorMap, roughnessMap };
+  return cachedGrassMaps;
 }
 
 /**
@@ -291,7 +298,7 @@ export const RoomFloorPlates: React.FC = () => {
 };
 
 export const ArchitecturalEnvironment: React.FC = () => {
-  const { scene, camera, gl } = useThree();
+  const { scene, camera, gl, controls } = useThree();
   const nodes = useScene((s) => s.nodes);
 
   // Expose Three.js scene & camera globally for headless audit & test inspection
@@ -299,7 +306,8 @@ export const ArchitecturalEnvironment: React.FC = () => {
     (window as any).__THREE_SCENE__ = scene;
     (window as any).__THREE_CAMERA__ = camera;
     (window as any).__THREE_GL__ = gl;
-  }, [scene, camera, gl]);
+    (window as any).__THREE_CONTROLS__ = controls;
+  }, [scene, camera, gl, controls]);
 
   // Compute building footprint bounding box in meters
   const bounds = useMemo(() => {
@@ -367,25 +375,82 @@ export const ArchitecturalEnvironment: React.FC = () => {
   const pavingTexture = useMemo(() => createProceduralPavingTexture(), []);
   const skyTexture = useMemo(() => createSkyDomeTexture(), []);
 
-  // Configure Scene Atmosphere, Shadows & Fog
+  // Configure Scene Atmosphere, Camera Far, DPR Clamp, Shadows & Fog
   useEffect(() => {
+    gl.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     gl.shadowMap.enabled = true;
     gl.shadowMap.type = THREE.PCFSoftShadowMap;
     gl.toneMapping = THREE.ACESFilmicToneMapping;
     gl.toneMappingExposure = 1.15;
 
-    // Atmospheric distance fog to blend perimeter rolling hills into sky
-    const fog = new THREE.FogExp2('#bbdefb', 0.0032);
+    if (camera instanceof THREE.PerspectiveCamera) {
+      if (camera.far < 850) {
+        camera.far = 900;
+        camera.updateProjectionMatrix();
+      }
+    }
+
+    // Distance fog matched cleanly outside plot bounds so grass fades smoothly into sky
+    const fog = new THREE.Fog('#c8e4fa', 140, 380);
     scene.fog = fog;
 
     return () => {
       scene.fog = null;
     };
-  }, [gl, scene]);
+  }, [gl, scene, camera]);
 
-  // Undulating Terrain Geometry (400m x 400m, flat inside building pad at y = -0.18m, rolling hills outside)
+  // Performance + Visual Polish Sweep:
+  // 1) Disable shadow casting on small interior furniture clutter / ceiling downlights
+  // 2) Suppress unintended debug sphere / ground helper artifacts inside Pascal viewer
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const box = new THREE.Box3();
+      const size = new THREE.Vector3();
+      scene.traverse((obj) => {
+        if (!(obj instanceof THREE.Mesh)) return;
+        const nameLower = (obj.name || '').toLowerCase();
+        // Suppress leftover Pascal default ground or debug sphere helpers
+        if (
+          nameLower.includes('horizon') ||
+          (nameLower.includes('ground') && !nameLower.includes('architectural'))
+        ) {
+          obj.visible = false;
+          return;
+        }
+        if (
+          obj.geometry instanceof THREE.SphereGeometry &&
+          !nameLower.includes('sky') &&
+          obj.geometry.parameters?.radius !== undefined &&
+          obj.geometry.parameters.radius < 0.16 &&
+          obj.material &&
+          !Array.isArray(obj.material) &&
+          (obj.material as THREE.MeshStandardMaterial).color
+        ) {
+          const hex = (obj.material as THREE.MeshStandardMaterial).color.getHexString();
+          if (hex === 'ef4444' || hex === '3b82f6' || hex === '2563eb' || hex === 'ff0000') {
+            obj.visible = false;
+            return;
+          }
+        }
+        // Disable expensive shadow casting on small interior clutter / recessed lights
+        if (obj.castShadow && obj.geometry && obj.name !== 'ArchitecturalEnvironment') {
+          box.setFromObject(obj);
+          if (!box.isEmpty()) {
+            box.getSize(size);
+            if (Math.max(size.x, size.y, size.z) < 1.25) {
+              obj.castShadow = false;
+            }
+          }
+        }
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [scene, nodes]);
+
+  // Undulating Terrain Geometry (420m x 420m, 64x64 lean mesh, flat at y = -0.15m under plot,
+  // perimeter hills rise STRICTLY above -0.15m so zero negative dips intersect Pascal y=0 plane)
   const terrainGeometry = useMemo(() => {
-    const geo = new THREE.PlaneGeometry(420, 420, 84, 84);
+    const geo = new THREE.PlaneGeometry(420, 420, 64, 64);
     geo.rotateX(-Math.PI / 2);
 
     const pos = geo.attributes.position!;
@@ -399,18 +464,17 @@ export const ArchitecturalEnvironment: React.FC = () => {
       const dz = z - centerZ;
       const dist = Math.sqrt(dx * dx + dz * dz);
 
-      let y = -0.18; // Base 180mm below building ground floor to avoid Z-fighting
+      let y = -0.15;
 
-      // Keep pad area completely flat, gently undulate outside perimeter
-      const flatZone = padRadius + 8;
+      // Flat perimeter apron up to padRadius + 10m; distant rolling hills strictly >= 0 elevation offset
+      const flatZone = padRadius + 10;
       if (dist > flatZone) {
-        const factor = Math.min(1.0, (dist - flatZone) / 50);
-        // Smooth rolling hills on horizon
-        const hill =
-          Math.sin(x * 0.022) * Math.cos(z * 0.022) * 4.2 +
-          Math.sin(x * 0.045 + 1.5) * 1.8 +
-          Math.cos(z * 0.038 - 0.8) * 2.2;
-        y += hill * factor;
+        const factor = Math.min(1.0, (dist - flatZone) / 55);
+        const wave =
+          (Math.sin(x * 0.022) * Math.cos(z * 0.022) + 1) * 1.4 +
+          (Math.sin(x * 0.045 + 1.5) + 1) * 0.55 +
+          (Math.cos(z * 0.038 - 0.8) + 1) * 0.65;
+        y += wave * factor;
       }
 
       pos.setY(i, y);
@@ -420,7 +484,7 @@ export const ArchitecturalEnvironment: React.FC = () => {
     return geo;
   }, [bounds]);
 
-  // Instanced Trees & Foliage strictly OUTSIDE the building pad
+  // Instanced Trees & Foliage strictly OUTSIDE the building pad (capped at 52 for 60 FPS)
   const treeInstances = useMemo(() => {
     const matrices: THREE.Matrix4[] = [];
     const { centerX, centerZ, padRadius, minZ } = bounds;
@@ -431,10 +495,9 @@ export const ArchitecturalEnvironment: React.FC = () => {
       return seed / 4294967296;
     };
 
-    // Distribute 90 trees in natural perimeter groves
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < 52; i++) {
       const angle = rnd() * Math.PI * 2;
-      const dist = padRadius + 6 + rnd() * 110;
+      const dist = padRadius + 8 + rnd() * 95;
       const x = centerX + Math.cos(angle) * dist;
       const z = centerZ + Math.sin(angle) * dist;
 
@@ -443,17 +506,21 @@ export const ArchitecturalEnvironment: React.FC = () => {
         continue;
       }
 
-      const scale = 0.75 + rnd() * 0.6;
+      const scale = 0.8 + rnd() * 0.55;
       const rotY = rnd() * Math.PI * 2;
 
-      // Sample terrain height for realistic tree placement
       const dx = x - centerX;
       const dz = z - centerZ;
       const d = Math.sqrt(dx * dx + dz * dz);
-      let y = -0.18;
-      if (d > padRadius + 8) {
-        const factor = Math.min(1.0, (d - (padRadius + 8)) / 50);
-        y += (Math.sin(x * 0.022) * Math.cos(z * 0.022) * 4.2 + Math.sin(x * 0.045 + 1.5) * 1.8) * factor;
+      let y = -0.15;
+      const flatZone = padRadius + 10;
+      if (d > flatZone) {
+        const factor = Math.min(1.0, (d - flatZone) / 55);
+        const wave =
+          (Math.sin(x * 0.022) * Math.cos(z * 0.022) + 1) * 1.4 +
+          (Math.sin(x * 0.045 + 1.5) + 1) * 0.55 +
+          (Math.cos(z * 0.038 - 0.8) + 1) * 0.65;
+        y += wave * factor;
       }
 
       const mat = new THREE.Matrix4();
@@ -498,11 +565,14 @@ export const ArchitecturalEnvironment: React.FC = () => {
 
   return (
     <group name="ArchitecturalEnvironment" raycast={() => null}>
+      {/* Suppress Pascal's default horizon fill plane & expand orbit range cleanly */}
+      <SceneGroundReplacement />
+
       {/* 1. Atmospheric Sky & Sun Lighting */}
       <hemisphereLight
         color="#dceeff"
         groundColor="#4a6b3e"
-        intensity={0.8}
+        intensity={0.85}
         position={[0, 50, 0]}
       />
       <directionalLight
@@ -510,8 +580,8 @@ export const ArchitecturalEnvironment: React.FC = () => {
         intensity={1.35}
         position={[bounds.centerX + 45, 75, bounds.centerZ + 55]}
         castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
+        shadow-mapSize-width={1024}
+        shadow-mapSize-height={1024}
         shadow-camera-near={1}
         shadow-camera-far={250}
         shadow-camera-left={-80}
@@ -522,7 +592,7 @@ export const ArchitecturalEnvironment: React.FC = () => {
       />
 
       {/* 2. Sky Gradient Dome */}
-      <mesh position={[bounds.centerX, 0, bounds.centerZ]} raycast={() => null}>
+      <mesh name="ArchitecturalSkyDome" position={[bounds.centerX, 0, bounds.centerZ]} raycast={() => null}>
         <sphereGeometry args={[320, 24, 16]} />
         <meshBasicMaterial
           map={skyTexture}
@@ -533,6 +603,7 @@ export const ArchitecturalEnvironment: React.FC = () => {
 
       {/* 3. Lush 3D Game-Grade Grass Terrain */}
       <mesh
+        name="ArchitecturalGrassTerrain"
         geometry={terrainGeometry}
         receiveShadow
         raycast={() => null}

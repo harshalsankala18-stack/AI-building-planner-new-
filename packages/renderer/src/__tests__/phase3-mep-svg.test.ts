@@ -117,4 +117,77 @@ describe('Phase 3 Renderer: Engineering Discipline Overlays & Stilt Road Access'
     expect(svg).toContain('data-gate-arrow="IN"');
     expect(svg).toContain('data-gate-arrow="OUT"');
   });
+
+  it('renders Fire Safety riser pipes, egress arrows, FE extinguisher symbols, Electrical circuits C1/C2/C3, and anchors opening labels', () => {
+    const floor = createFloor({
+      buildingId: 'b-svg-2',
+      level: 1,
+      name: 'First Floor',
+      floorHeight: 3000,
+      boundary: {
+        points: [
+          { x: 0, y: 0 },
+          { x: 10000, y: 0 },
+          { x: 10000, y: 8000 },
+          { x: 0, y: 8000 },
+        ],
+      },
+    });
+    const building: Building = {
+      ...createBuilding({
+        projectId: 'p-svg-2',
+        name: 'Stage F MEP SVG Test',
+        site: { plotWidth: 12000, plotDepth: 10000, roadFacing: Direction.South },
+      }),
+      floors: [floor],
+      mepEngineering: {
+        schemaVersion: 'RH-MEP-3.0',
+        status: 'COORDINATION_PROPOSAL_NOT_CERTIFIED',
+        verticalStacks: [],
+        summary: { symbols: 2, runs: 3, ceilings: 0, cantileverBeams: 0 },
+        floors: [
+          {
+            floorId: floor.id,
+            floorLevel: 1,
+            symbols: [
+              { id: 'e-db', kind: 'DB', discipline: 'ELECTRICAL', layer: 'M-ELEC-SYMB', position: { x: 2000, y: 2000 }, label: 'DB' },
+              { id: 'f-fe', kind: 'FE', discipline: 'FIRE', layer: 'F-FIRE-SYMB', position: { x: 5000, y: 4000 }, label: 'FE ABC 6KG' },
+            ],
+            runs: [
+              { id: 'r-lt', kind: 'WIRING_LOOP', discipline: 'ELECTRICAL', layer: 'M-ELEC-WIRE', circuitId: 'C1-LT', points: [{ x: 2000, y: 2000 }, { x: 5000, y: 2000 }] },
+              { id: 'r-pwr', kind: 'WIRING_POWER', discipline: 'ELECTRICAL', layer: 'M-ELEC-WIRE', circuitId: 'C2-PWR', points: [{ x: 2000, y: 2000 }, { x: 6000, y: 3000 }] },
+              { id: 'r-fire', kind: 'FIRE_PIPE', discipline: 'FIRE', layer: 'F-FIRE-PIPE', points: [{ x: 5000, y: 4000 }, { x: 8000, y: 4000 }] },
+              { id: 'r-egress', kind: 'FIRE_EGRESS', discipline: 'FIRE', layer: 'F-FIRE-EGRESS', egressDistanceM: 8.4, points: [{ x: 3000, y: 3000 }, { x: 8000, y: 4000 }] },
+            ],
+            ceilings: [],
+            cantileverBeams: [],
+          },
+        ],
+      },
+    };
+
+    const bounds = getFloorContentBounds(floor);
+    const svg = renderFloor(
+      floor,
+      building,
+      fitToView(bounds, 1000, 800),
+      1000,
+      800,
+      {
+        disciplines: {
+          ARCHITECTURAL: true,
+          ELECTRICAL: true,
+          FIRE_SAFETY: true,
+        },
+      },
+    );
+
+    expect(svg).toContain('C1-LT');
+    expect(svg).toContain('C2-PWR');
+    expect(svg).toContain('F-FIRE-PIPE');
+    expect(svg).toContain('F-FIRE-EGRESS');
+    expect(svg).toContain('data-mep-kind="FE"');
+    expect(svg).toContain('EGRESS 8.4m');
+    expect(svg).toContain('fire-egress-arrow');
+  });
 });

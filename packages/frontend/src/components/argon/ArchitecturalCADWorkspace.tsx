@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import type { EngineeringOverlay } from '@ai-floor-planner/core';
 import {
@@ -42,8 +42,8 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
   onModeChange,
   hideToolbars = false,
   showInspector = true,
-  activeDiscipline: _activeDiscipline = 'ARCHITECTURAL',
-  onDisciplineChange: _onDisciplineChange,
+  activeDiscipline = 'ARCHITECTURAL',
+  onDisciplineChange,
 }) => {
   const aiTelemetry = editor.building.metadata.generationBrief?.aiTelemetry;
   const [internalMode, setInternalMode] = useState<StudioWorkspaceMode>('engineering');
@@ -63,6 +63,28 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
     FALSE_CEILING: false,
     FIRE_SAFETY: false,
   });
+
+  useEffect(() => {
+    const normalized = String(activeDiscipline || 'ARCHITECTURAL').toUpperCase() as EngineeringOverlay;
+    if (
+      normalized === 'ARCHITECTURAL' ||
+      normalized === 'STRUCTURAL' ||
+      normalized === 'ELECTRICAL' ||
+      normalized === 'PLUMBING' ||
+      normalized === 'FALSE_CEILING' ||
+      normalized === 'FIRE_SAFETY'
+    ) {
+      setDisciplines((prev) => ({
+        ...prev,
+        ARCHITECTURAL: true,
+        STRUCTURAL: normalized === 'STRUCTURAL',
+        ELECTRICAL: normalized === 'ELECTRICAL',
+        PLUMBING: normalized === 'PLUMBING',
+        FALSE_CEILING: normalized === 'FALSE_CEILING',
+        FIRE_SAFETY: normalized === 'FIRE_SAFETY',
+      }));
+    }
+  }, [activeDiscipline]);
   const [exportStatus, setExportStatus] = useState('');
   const controller = React.useRef(new AbortController());
   React.useEffect(() => {
@@ -380,7 +402,64 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
                   {layer[0]!.toUpperCase() + layer.slice(1)}
                 </button>
               ))}
+              <span className="h-3 w-px bg-slate-700 mx-0.5" aria-hidden="true" />
+              <button
+                type="button"
+                data-testid="cad-pill-electrical"
+                aria-pressed={disciplines.ELECTRICAL}
+                onClick={() => {
+                  const nextVal = !disciplines.ELECTRICAL;
+                  setDisciplines((p) => ({ ...p, ELECTRICAL: nextVal }));
+                  onDisciplineChange?.(nextVal ? 'ELECTRICAL' : 'ARCHITECTURAL');
+                }}
+                className={`px-2.5 py-1 rounded-full font-medium transition ${
+                  disciplines.ELECTRICAL
+                    ? 'bg-amber-400 text-slate-950 font-bold shadow-xs'
+                    : 'text-amber-300/80 hover:text-amber-200 hover:bg-slate-800'
+                }`}
+              >
+                Electrical
+              </button>
+              <button
+                type="button"
+                data-testid="cad-pill-fire-safety"
+                aria-pressed={disciplines.FIRE_SAFETY}
+                onClick={() => {
+                  const nextVal = !disciplines.FIRE_SAFETY;
+                  setDisciplines((p) => ({ ...p, FIRE_SAFETY: nextVal }));
+                  onDisciplineChange?.(nextVal ? 'FIRE_SAFETY' : 'ARCHITECTURAL');
+                }}
+                className={`px-2.5 py-1 rounded-full font-medium transition ${
+                  disciplines.FIRE_SAFETY
+                    ? 'bg-rose-500 text-white font-bold shadow-xs'
+                    : 'text-rose-300/80 hover:text-rose-200 hover:bg-slate-800'
+                }`}
+              >
+                Fire Safety
+              </button>
             </div>
+
+            {(disciplines.ELECTRICAL || disciplines.FIRE_SAFETY) && (
+              <div
+                data-testid="mep-cad-legend"
+                className="absolute bottom-14 left-4 z-20 flex flex-wrap items-center gap-3 px-3 py-1.5 rounded-lg border border-slate-700/80 bg-slate-950/90 text-[10px] font-mono text-slate-200 shadow-xl backdrop-blur-md pointer-events-none"
+              >
+                {disciplines.ELECTRICAL && (
+                  <>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 bg-amber-500" />C1-LT Lighting</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 bg-sky-500" />C2-PWR 16A</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 bg-teal-400" />C3-AC Split</span>
+                  </>
+                )}
+                {disciplines.FIRE_SAFETY && (
+                  <>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-red-600" />FE / FHR / SD</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 bg-red-600" />Fire Riser</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 bg-green-500" />Emergency Egress</span>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Collapsible 300px Right Inspector Panel */}

@@ -37,6 +37,7 @@ const LABELS: Readonly<Record<MepSymbolKind, string>> = {
   DB: 'DB', FAN: 'FAN', DL: 'DL', SB: 'SB', SB_2WAY: '2W-SB', SOCKET_16A: '16A', GY: 'GY',
   AC_IDU: 'AC-IDU', AC_ODU: 'AC-ODU', PLUMB_SHAFT: 'PLUMB SHAFT', FT: 'FT', NT: 'NT',
   FHR: 'FHR', FHR_HR: 'FHR-HR', FACP: 'FACP', SD: 'SD', HD: 'HD', EXIT_SIGN: 'EXIT', SPRINKLER: 'SPK',
+  FE: 'FE',
 };
 
 export const PLUMB_SHAFT_MIN = { widthMm: 600, depthMm: 900 } as const;
@@ -71,7 +72,7 @@ const isCommonCirculation = (r: Room) =>
   && r.architecturalRole !== 'VEHICLE_AISLE';
 const isStilt = (f: Floor) => f.floorUse === 'STILT_PARKING' || /STILT/i.test(f.name);
 const isRoof = (f: Floor) => f.floorUse === 'ROOF' || /TERRACE|ROOF/i.test(f.name);
-const isResidential = (f: Floor) => !isStilt(f) && !isRoof(f) && f.rooms.some(r => r.unitId);
+const isResidential = (f: Floor) => !isStilt(f) && !isRoof(f) && f.rooms.length > 0;
 
 function wallDir(w: Wall): Point {
   const dx = w.endPoint.x - w.startPoint.x, dy = w.endPoint.y - w.startPoint.y;
@@ -117,13 +118,22 @@ class FloorBuilder {
   }
   run(kind: MepRun['kind'], points: Point[], extra: Partial<MepRun> = {}): void {
     if (points.length < 2) return;
-    const electrical = kind === 'WIRING_LOOP';
+    const isElectrical = kind === 'WIRING_LOOP' || kind === 'WIRING_POWER' || kind === 'WIRING_AC';
+    const isFire = kind === 'FIRE_PIPE' || kind === 'FIRE_EGRESS';
+    const discipline = isElectrical ? 'ELECTRICAL' : isFire ? 'FIRE' : 'PLUMBING';
+    const layer = isElectrical
+      ? 'M-ELEC-WIRE'
+      : kind === 'FIRE_PIPE'
+        ? 'F-FIRE-PIPE'
+        : kind === 'FIRE_EGRESS'
+          ? 'F-FIRE-EGRESS'
+          : 'M-PLUMB-PIPE';
     this.runs.push({
       id: this.id(kind.toLowerCase()), kind,
-      discipline: electrical ? 'ELECTRICAL' : 'PLUMBING',
-      layer: electrical ? 'M-ELEC-WIRE' : 'M-PLUMB-PIPE',
+      discipline,
+      layer,
       points: points.map(p => ({ x: r10(p.x), y: r10(p.y) })),
-      ...(kind === 'SP' ? { diameterMm: 110 } : kind === 'WP' ? { diameterMm: 75 } : kind === 'CWS' || kind === 'HWS' ? { diameterMm: 20 } : {}),
+      ...(kind === 'SP' ? { diameterMm: 110 } : kind === 'WP' ? { diameterMm: 75 } : kind === 'CWS' || kind === 'HWS' ? { diameterMm: 20 } : kind === 'FIRE_PIPE' ? { diameterMm: 100 } : {}),
       ...extra,
     });
   }
@@ -184,6 +194,8 @@ function synthesizeUnitElectrical(fb: FloorBuilder, floor: Floor, unitRooms: Roo
     db = fb.sym('DB', inside(b, p) ? p : c, { roomId: entryRoom.id, unitId, label: 'DB (MAIN)' });
   }
   const fans: Point[] = [];
+  const powerPts: Point[] = [];
+  const acPts: Point[] = [];
   const bedrooms = unitRooms.filter(isBedroom);
   const master = bedrooms.find(r => /master/i.test(r.name)) ?? [...bedrooms].sort((a, b) => b.area - a.area)[0];
   for (const room of unitRooms) {
@@ -196,11 +208,19 @@ function synthesizeUnitElectrical(fb: FloorBuilder, floor: Floor, unitRooms: Roo
       const horizontal = b.w >= b.h;
       fb.sym('DL', horizontal ? { x: c.x - off, y: c.y } : { x: c.x, y: c.y - off }, { roomId: room.id, unitId });
       fb.sym('DL', horizontal ? { x: c.x + off, y: c.y } : { x: c.x, y: c.y + off }, { roomId: room.id, unitId });
+      if (isLivingLike(room)) {
+        // Living TV Feature Wall 6A+16A Media Power Point
+        const tvSock = { x: b.x + b.w * 0.5, y: b.y + Math.min(b.h - 200, 220) };
+        fb.sym('SOCKET_16A', tvSock, { roomId: room.id, unitId, label: 'TV WALL 16A' });
+        powerPts.push(tvSock);
+      }
       for (const wall of exteriorWalls(floor, room).slice(0, 1)) {
         const mid = { x: (wall.startPoint.x + wall.endPoint.x) / 2, y: (wall.startPoint.y + wall.endPoint.y) / 2 };
         const n = inwardNormal(wall, b);
-        fb.sym('AC_IDU', { x: mid.x + n.x * 200, y: mid.y + n.y * 200 }, { roomId: room.id, unitId, widthMm: 900, depthMm: 250 });
+        const idu = { x: mid.x + n.x * 200, y: mid.y + n.y * 200 };
+        fb.sym('AC_IDU', idu, { roomId: room.id, unitId, widthMm: 900, depthMm: 250 });
         fb.sym('AC_ODU', { x: mid.x - n.x * 450, y: mid.y - n.y * 450 }, { roomId: room.id, unitId, widthMm: 850, depthMm: 350 });
+        acPts.push(idu);
       }
     }
     if (room === master) {
@@ -213,11 +233,15 @@ function synthesizeUnitElectrical(fb: FloorBuilder, floor: Floor, unitRooms: Roo
       const labels = ['16A FRIDGE', '16A MICROWAVE', '16A HOB/CHIMNEY'];
       labels.forEach((label, i) => {
         const t = (i + 1) / (labels.length + 1);
-        fb.sym('SOCKET_16A', b.w >= b.h ? { x: b.x + b.w * t, y: b.y + 150 } : { x: b.x + 150, y: b.y + b.h * t }, { roomId: room.id, unitId, label });
+        const pt = b.w >= b.h ? { x: b.x + b.w * t, y: b.y + 150 } : { x: b.x + 150, y: b.y + b.h * t };
+        fb.sym('SOCKET_16A', pt, { roomId: room.id, unitId, label });
+        powerPts.push(pt);
       });
     }
     if (isBath(room)) {
-      fb.sym('GY', { x: b.x + b.w - 300, y: b.y + 300 }, { roomId: room.id, unitId, label: 'GY 16A' });
+      const gyPt = { x: b.x + b.w - 300, y: b.y + 300 };
+      fb.sym('GY', gyPt, { roomId: room.id, unitId, label: 'GY 16A' });
+      powerPts.push(gyPt);
     }
     // Switchboards beside every hinged room entry door.
     for (const door of floor.doors.filter(d => d.connectsRooms.includes(room.id) && d.type !== DoorType.OpenPassage)) {
@@ -226,7 +250,9 @@ function synthesizeUnitElectrical(fb: FloorBuilder, floor: Floor, unitRooms: Roo
       if (p) fb.sym('SB', p, { roomId: room.id, unitId, label: 'SB 6A' });
     }
   }
-  if (db && fans.length) fb.run('WIRING_LOOP', [db.position, ...fans], { roomId: db.roomId });
+  if (db && fans.length) fb.run('WIRING_LOOP', [db.position, ...fans], { roomId: db.roomId, circuitId: 'C1-LT', label: 'C1-LT (Lighting)' });
+  if (db && powerPts.length) fb.run('WIRING_POWER', [db.position, ...powerPts], { roomId: db.roomId, circuitId: 'C2-PWR', label: 'C2-PWR (16A Power)' });
+  if (db && acPts.length) fb.run('WIRING_AC', [db.position, ...acPts], { roomId: db.roomId, circuitId: 'C3-AC', label: 'C3-AC (Split AC)' });
 }
 
 const isBalconyLike = (r: Room) => r.type === RoomType.Balcony;
@@ -299,17 +325,33 @@ function synthesizeCeilings(fb: FloorBuilder, floor: Floor, rooms: Room[]): void
 }
 
 function synthesizeFire(fb: FloorBuilder, floor: Floor, stilt: boolean): void {
-  const stair = floor.rooms.find(r => r.type === RoomType.Staircase);
+  const stair = floor.rooms.find(r => r.type === RoomType.Staircase) ?? floor.rooms.find(r => /stair/i.test(r.name));
+  const lobby = floor.rooms.find(r => isCommonCirculation(r) && (!stair || sharesEdge(roomBox(r), roomBox(stair))))
+    ?? floor.rooms.find(isLivingLike);
+  const exitPoint: Point = stair
+    ? center(roomBox(stair))
+    : (() => {
+        const extDoor = floor.doors.find(d => floor.walls.some(w => w.id === d.wallId && w.wallUse === 'EXTERNAL')) ?? floor.doors[0];
+        return extDoor?.position ?? (lobby ? center(roomBox(lobby)) : { x: 2000, y: 2000 });
+      })();
+
   if (stair) {
     const sbx = roomBox(stair);
-    const lobby = floor.rooms.find(r => isCommonCirculation(r) && sharesEdge(roomBox(r), sbx));
     const host = lobby ? roomBox(lobby) : sbx;
     const anchor = { x: Math.max(host.x + 300, Math.min(host.x + host.w - 300, sbx.x + sbx.w / 2)), y: Math.max(host.y + 300, Math.min(host.y + host.h - 300, sbx.y + sbx.h / 2)) };
     fb.sym('FHR', anchor, { roomId: lobby?.id ?? stair.id, label: 'FHR (WET RISER)' });
-    fb.sym('FHR_HR', { x: anchor.x + (host.w > host.h ? 500 : 0), y: anchor.y + (host.w > host.h ? 0 : 500) }, { roomId: lobby?.id ?? stair.id, label: 'FHR-HR (HOSE REEL)' });
+    const hrPt = { x: anchor.x + (host.w > host.h ? 500 : 0), y: anchor.y + (host.w > host.h ? 0 : 500) };
+    fb.sym('FHR_HR', hrPt, { roomId: lobby?.id ?? stair.id, label: 'FHR-HR (HOSE REEL)' });
     fb.sym('FACP', { x: anchor.x - (host.w > host.h ? 500 : 0), y: anchor.y - (host.w > host.h ? 0 : 500) }, { roomId: lobby?.id ?? stair.id });
+    fb.sym('FE', { x: anchor.x + 250, y: anchor.y + 350 }, { roomId: lobby?.id ?? stair.id, label: 'FE ABC 6KG' });
+    fb.run('FIRE_PIPE', [anchor, hrPt, exitPoint], { roomId: lobby?.id ?? stair.id, label: '100mm FIRE RISER' });
+  } else {
+    // Single residence / standalone floor: provide extinguisher near entry/kitchen + exit sign at main door
+    fb.sym('FE', { x: exitPoint.x + 300, y: exitPoint.y + 250 }, { roomId: lobby?.id, label: 'FE ABC 6KG' });
+    fb.sym('EXIT_SIGN', exitPoint, { roomId: lobby?.id, label: 'EXIT' });
   }
-  for (const stairRoom of floor.rooms.filter(r => r.type === RoomType.Staircase)) {
+
+  for (const stairRoom of floor.rooms.filter(r => r.type === RoomType.Staircase || /stair/i.test(r.name))) {
     for (const door of floor.doors.filter(d => d.connectsRooms.includes(stairRoom.id))) {
       fb.sym('EXIT_SIGN', door.position, { roomId: stairRoom.id, label: 'EXIT' });
     }
@@ -323,7 +365,14 @@ function synthesizeFire(fb: FloorBuilder, floor: Floor, stilt: boolean): void {
       fb.sym('SD', b.w >= b.h ? { x: b.x + b.w * t, y: b.y + b.h / 2 } : { x: b.x + b.w / 2, y: b.y + b.h * t }, { roomId: room.id });
     }
   }
-  for (const k of floor.rooms.filter(isKitchen)) fb.sym('HD', center(roomBox(k)), { roomId: k.id, unitId: k.unitId });
+  for (const room of floor.rooms.filter(r => isLivingLike(r) || isBedroom(r))) {
+    fb.sym('SD', center(roomBox(room)), { roomId: room.id, unitId: room.unitId, label: 'SD' });
+  }
+  for (const k of floor.rooms.filter(isKitchen)) {
+    const kc = center(roomBox(k));
+    fb.sym('HD', kc, { roomId: k.id, unitId: k.unitId });
+    fb.sym('FE', { x: kc.x + 400, y: kc.y - 300 }, { roomId: k.id, unitId: k.unitId, label: 'FE KITCHEN' });
+  }
   if (stilt) {
     for (const room of floor.rooms.filter(r => r.type === RoomType.Parking || r.architecturalRole === 'VEHICLE_AISLE' || r.architecturalRole === 'PARKING_BAY')) {
       const b = roomBox(room);
@@ -331,6 +380,21 @@ function synthesizeFire(fb: FloorBuilder, floor: Floor, stilt: boolean): void {
         for (let y = b.y + SPRINKLER_SPACING_MM / 2; y < b.y + b.h; y += SPRINKLER_SPACING_MM)
           fb.sym('SPRINKLER', { x, y }, { roomId: room.id });
     }
+  }
+
+  // Emergency Egress Paths: from each unit living/entrance room (or bedroom on 2BHK) -> lobby -> staircase/exit
+  const egressOrigins = floor.rooms.filter(r => isLivingLike(r));
+  const lobbyCenter = lobby ? center(roomBox(lobby)) : exitPoint;
+  for (const originRoom of egressOrigins) {
+    const oc = center(roomBox(originRoom));
+    const pts = dist(oc, lobbyCenter) > 400 ? [oc, lobbyCenter, exitPoint] : [oc, exitPoint];
+    const totalDistMm = pts.slice(1).reduce((sum, p, idx) => sum + dist(pts[idx]!, p), 0);
+    const totalDistM = Math.round((totalDistMm / 1000) * 10) / 10;
+    fb.run('FIRE_EGRESS', pts, {
+      roomId: originRoom.id,
+      egressDistanceM: totalDistM,
+      label: `EGRESS ${totalDistM}m`,
+    });
   }
 }
 
@@ -407,7 +471,10 @@ export function synthesizeMepEngineering(building: Building): CoordinatedMepEngi
         if (nearest) stackBoxes.set(k.id, nearest.box);
       }
       const byUnit = new Map<string, Room[]>();
-      for (const r of floor.rooms.filter(x => x.unitId)) byUnit.set(r.unitId!, [...(byUnit.get(r.unitId!) ?? []), r]);
+      for (const r of floor.rooms) {
+        const uKey = r.unitId ?? 'unit_main';
+        byUnit.set(uKey, [...(byUnit.get(uKey) ?? []), r]);
+      }
       for (const [unitId, unitRooms] of byUnit) {
         synthesizeUnitElectrical(fb, floor, unitRooms, unitId);
         synthesizeUnitPlumbing(fb, floor, unitRooms, unitId, stackBoxes);
@@ -416,6 +483,14 @@ export function synthesizeMepEngineering(building: Building): CoordinatedMepEngi
       synthesizeCantilevers(fb, floor);
       synthesizeFire(fb, floor, false);
     } else if (isStilt(floor)) {
+      const byUnit = new Map<string, Room[]>();
+      for (const r of floor.rooms) {
+        const uKey = r.unitId ?? 'stilt_common';
+        byUnit.set(uKey, [...(byUnit.get(uKey) ?? []), r]);
+      }
+      for (const [unitId, unitRooms] of byUnit) {
+        synthesizeUnitElectrical(fb, floor, unitRooms, unitId);
+      }
       synthesizeFire(fb, floor, true);
       const stacks = [...stackByKey.values()];
       for (const stack of stacks) {

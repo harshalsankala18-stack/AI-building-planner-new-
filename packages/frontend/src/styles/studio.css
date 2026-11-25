@@ -1863,6 +1863,37 @@
   line-height: 1.45;
 }
 
+/* Stage F: Fix cramped right inspector wrapping in CAD workspace */
+.studio-root [data-testid="property-inspector-drawer"] {
+  min-width: 300px;
+}
+
+.studio-root [data-testid="property-inspector-drawer"] .inspector-body,
+.studio-root [data-testid="property-inspector-drawer"] .inspector-header {
+  padding: 14px !important;
+}
+
+.studio-root [data-testid="property-inspector-drawer"] .refinement-control-header {
+  flex-direction: column;
+  gap: 6px;
+}
+
+.studio-root [data-testid="property-inspector-drawer"] .refinement-control-header div,
+.studio-root [data-testid="property-inspector-drawer"] .form-group,
+.studio-root [data-testid="property-inspector-drawer"] .inspector-section {
+  min-width: 0;
+  width: 100%;
+}
+
+.studio-root [data-testid="property-inspector-drawer"] .form-label,
+.studio-root [data-testid="property-inspector-drawer"] .inspector-title,
+.studio-root [data-testid="property-inspector-drawer"] h2,
+.studio-root [data-testid="property-inspector-drawer"] strong {
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
 .studio-root .refinement-selection-summary {
   background-color: #EFF6FF !important;
   border: 1px solid #BFDBFE !important;
