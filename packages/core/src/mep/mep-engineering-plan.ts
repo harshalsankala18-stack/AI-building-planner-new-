@@ -31,9 +31,9 @@ export const ENGINEERING_OVERLAYS: readonly EngineeringOverlay[] = [
 
 export type MepSymbolKind =
   // Electrical (M-ELEC-SYMB)
-  | 'DB' | 'FAN' | 'DL' | 'SB' | 'SB_2WAY' | 'SOCKET_16A' | 'GY' | 'AC_IDU' | 'AC_ODU'
+  | 'DB' | 'LT_PANEL' | 'ES' | 'FAN' | 'DL' | 'PL' | 'BL' | 'SB' | 'SB_2WAY' | 'SOCKET_6A' | 'SOCKET_16A' | 'TV_DATA' | 'GY' | 'EF' | 'AC_IDU' | 'AC_ODU'
   // Plumbing fixtures (M-PLUMB-FIXT)
-  | 'PLUMB_SHAFT' | 'FT' | 'NT'
+  | 'PLUMB_SHAFT' | 'FT' | 'NT' | 'WC' | 'WB' | 'SH' | 'KS' | 'WM' | 'RWP' | 'UGWT' | 'OHT' | 'IC' | 'GT'
   // Fire safety (F-FIRE-SYMB)
   | 'FHR' | 'FHR_HR' | 'FACP' | 'SD' | 'HD' | 'EXIT_SIGN' | 'SPRINKLER' | 'FE';
 
@@ -67,6 +67,7 @@ export type MepPipeKind =
   | 'HWS'
   | 'SP'
   | 'WP'
+  | 'RWP_PIPE'
   | 'WIRING_LOOP'
   | 'WIRING_POWER'
   | 'WIRING_AC'

@@ -734,11 +734,14 @@ function sliceFlatRow(
    * wrong end moves the flat off its corridor and it has no entrance at all.
    */
   entranceAtLowEnd: boolean = false,
-): { flats: Box2D[]; leftovers: Box2D[] } {
+  /** Insert compact 1400mm inter-flat O.T.S. air & light court between multi-flat neighbors when feasible. */
+  reserveInterflatOts: boolean = false,
+): { flats: Box2D[]; leftovers: Box2D[]; interflatSlots: Box2D[] } {
   if (count <= 0) {
-    return { flats: [], leftovers: [region] };
+    return { flats: [], leftovers: [region], interflatSlots: [] };
   }
   const leftovers: Box2D[] = [];
+  const interflatSlots: Box2D[] = [];
 
   // 1. Cap the row's cross-span WITHOUT trimming either end.
   //
@@ -800,20 +803,26 @@ function sliceFlatRow(
   // spanning the full depth of the band, so each still reaches the edge, and
   // the gaps read as light slots between the dwellings.
   const available = alongY ? rowBand.h : rowBand.w;
-  const perFlat = Math.min(maxRun, Math.floor(available / count));
-  const surplus = available - perFlat * count;
+  const crossDepth = alongY ? rowBand.w : rowBand.h;
   const gapCount = Math.max(0, count - 1);
+  const canReserveInterflat =
+    reserveInterflatOts &&
+    gapCount > 0 &&
+    crossDepth < 11_500 &&
+    Math.floor((available - 1400 * gapCount) / count) >= 8500;
+  const perFlat = canReserveInterflat
+    ? Math.floor((available - 1400 * gapCount) / count)
+    : Math.min(maxRun, Math.floor(available / count));
+  const surplus = available - perFlat * count;
 
   // A slot between two flats must be wide enough to read as a light slot, or
   // not exist at all. A narrow sliver would split the corridor wall into
   // fragments too short to host an entrance, leaving a flat with no front door.
   const rawGap = gapCount > 0 ? Math.floor(surplus / gapCount) : 0;
-  const perGap = rawGap >= MIN_LIGHT_SLOT ? rawGap : 0;
+  const perGap = canReserveInterflat ? 1400 : rawGap >= MIN_LIGHT_SLOT ? rawGap : 0;
 
   // Lay the row out as flat, gap, flat, gap, ..., flat; the last flat absorbs
-  // any rounding remainder so the band is tiled exactly. With no usable slot
-  // the flats simply share party walls and take the surplus as extra depth,
-  // which is the normal arrangement.
+  // any rounding remainder so the band is tiled exactly.
   const sizes: number[] = [];
   for (let i = 0; i < count; i++) {
     sizes.push(i === count - 1 ? 0 : perFlat);
@@ -826,13 +835,16 @@ function sliceFlatRow(
     // Even indices are flats, odd indices are the slots between them.
     for (let i = 0; i < pieces.length; i++) {
       if (i % 2 === 0) flats.push(pieces[i]!);
-      else if ((alongY ? pieces[i]!.h : pieces[i]!.w) > 0) leftovers.push(pieces[i]!);
+      else if ((alongY ? pieces[i]!.h : pieces[i]!.w) > 0) {
+        leftovers.push(pieces[i]!);
+        if (canReserveInterflat) interflatSlots.push(pieces[i]!);
+      }
     }
   } else {
     flats.push(...pieces);
   }
 
-  return { flats, leftovers };
+  return { flats, leftovers, interflatSlots };
 }
 
 /**
@@ -1354,17 +1366,25 @@ const centralCoreSpine: FamilyBuilder = ctx => {
       spanCapE = rebalanced.bSpan;
       runE = rebalanced.bRun;
     }
-    const westRow = sliceFlatRow(left, westCount, runW, true, spanCapW, false);
-    const eastRow = sliceFlatRow(right, eastCount, runE, true, spanCapE, true);
+    const allowInterflatOts =
+      !noOts &&
+      !isMixed &&
+      !hasAreaTarget &&
+      !program.preferences.ventilatedCentralOtsShafts;
+    const westRow = sliceFlatRow(left, westCount, runW, true, spanCapW, false, allowInterflatOts && westCount >= 2);
+    const eastRow = sliceFlatRow(right, eastCount, runE, true, spanCapE, true, allowInterflatOts && eastCount >= 2);
 
     const flatBoxes: Box2D[] = [];
     const edges: AccessEdge[] = [];
     for (const b of westRow.flats) { flatBoxes.push(b); edges.push('EAST'); }
     for (const b of eastRow.flats) { flatBoxes.push(b); edges.push('WEST'); }
 
+    const interflatSet = new Set<Box2D>([...westRow.interflatSlots, ...eastRow.interflatSlots]);
     const openSpace = [...westRow.leftovers, ...eastRow.leftovers];
-    const openSpaceTags = openSpace.map(() =>
-      (fillWings || hasAreaTarget ? (['recess:perimeter'] as const) : ([] as const)),
+    const openSpaceTags = openSpace.map((box) =>
+      interflatSet.has(box)
+        ? (['shaft:ots', 'shaft:interflat'] as const)
+        : (fillWings || hasAreaTarget ? (['recess:perimeter'] as const) : ([] as const)),
     );
 
     attempts.push({
@@ -1483,17 +1503,25 @@ const dualWing: FamilyBuilder = ctx => {
       maxSpanS = rebalanced.bSpan;
       runS = rebalanced.bRun;
     }
-    const northRow = sliceFlatRow(north, northCount, runN, false, maxSpanN, false);
-    const southRow = sliceFlatRow(south, southCount, runS, false, maxSpanS, true);
+    const allowInterflatOts =
+      !noOts &&
+      !isMixed &&
+      !hasAreaTarget &&
+      !program.preferences.ventilatedCentralOtsShafts;
+    const northRow = sliceFlatRow(north, northCount, runN, false, maxSpanN, false, allowInterflatOts && northCount >= 2);
+    const southRow = sliceFlatRow(south, southCount, runS, false, maxSpanS, true, allowInterflatOts && southCount >= 2);
 
     const flatBoxes: Box2D[] = [];
     const edges: AccessEdge[] = [];
     for (const b of northRow.flats) { flatBoxes.push(b); edges.push('SOUTH'); }
     for (const b of southRow.flats) { flatBoxes.push(b); edges.push('NORTH'); }
 
+    const interflatSet = new Set<Box2D>([...northRow.interflatSlots, ...southRow.interflatSlots]);
     const openSpace = [...northRow.leftovers, ...southRow.leftovers];
-    const openSpaceTags = openSpace.map(() =>
-      (fillWings || hasAreaTarget ? (['recess:perimeter'] as const) : ([] as const)),
+    const openSpaceTags = openSpace.map((box) =>
+      interflatSet.has(box)
+        ? (['shaft:ots', 'shaft:interflat'] as const)
+        : (fillWings || hasAreaTarget ? (['recess:perimeter'] as const) : ([] as const)),
     );
 
     attempts.push({
@@ -1549,9 +1577,10 @@ const sideCore: FamilyBuilder = ctx => {
     const label = `Side core to the ${name}`;
     const vertical = side === 'EAST' || side === 'WEST';
 
+    const isSingleHouseBand = flatsPerFloor === 1 && !vertical && env.w >= 5400 && env.h >= 10000;
     // The corridor must face the flats: it lies on the band face nearer them.
     const corridorSides: CorridorSides = side === 'EAST' || side === 'SOUTH' ? 'LOW' : 'HIGH';
-    const coreSpan = requiredCoreBandWidth({ compact, corridorSides });
+    const coreSpan = isSingleHouseBand ? 3100 : requiredCoreBandWidth({ compact, corridorSides });
     const across = vertical ? env.w : env.h;
     const flatsSpan = across - coreSpan;
 
@@ -1579,12 +1608,35 @@ const sideCore: FamilyBuilder = ctx => {
       core = c; flatsRegion = r;
     }
 
-    const band = dissectCoreBand(core, {
-      stairCount, compact,
-      liftsAtLowSide: side === 'WEST' || side === 'NORTH',
-      preferOts: false,
-      corridorSides,
-    });
+    let band: ReturnType<typeof dissectCoreBand>;
+    if (isSingleHouseBand) {
+      const corrH = 1500;
+      const [corrBox, outerBand] = side === 'SOUTH'
+        ? (splitY(core, [corrH, 0]) as [Box2D, Box2D])
+        : (splitY(core, [core.h - corrH, 0]) as [Box2D, Box2D]);
+      const finalCorr = side === 'SOUTH' ? corrBox : outerBand;
+      const finalStack = side === 'SOUTH' ? outerBand : corrBox;
+      const stairW = Math.min(2600, Math.floor(finalStack.w * 0.45));
+      const liftW = Math.min(1800, Math.floor(finalStack.w * 0.30));
+      const [stBox, lfBox, restBox] = splitX(finalStack, [stairW, liftW, 0]) as [Box2D, Box2D, Box2D];
+      band = {
+        corridorBoxes: [finalCorr],
+        lobbyBoxes: [],
+        liftBoxes: [lfBox],
+        stairBoxes: [stBox],
+        shaftBoxes: restBox.w > 0 ? [restBox] : [],
+        shaftRoles: restBox.w > 0 ? [restBox.w >= 1200 ? 'OPEN_TO_SKY_VOID' : 'SERVICE_SHAFT'] : [],
+        shaftTags: restBox.w >= 1200 ? [['shaft:ots']] : restBox.w > 0 ? [[]] : [],
+        reasons: [],
+      };
+    } else {
+      band = dissectCoreBand(core, {
+        stairCount, compact,
+        liftsAtLowSide: side === 'WEST' || side === 'NORTH',
+        preferOts: false,
+        corridorSides,
+      });
+    }
     if (band.reasons.length) {
       attempts.push({ variantId, label, rationale: '', reasons: band.reasons });
       continue;

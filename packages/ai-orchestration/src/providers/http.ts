@@ -3,6 +3,19 @@ import { AISafetyError } from './base';
 
 export type ProviderFetch = typeof fetch;
 
+/**
+ * Redacts API keys (`AIza...`, `AQ....`, `?key=...`, Bearer tokens) from logs and error strings.
+ */
+export function sanitizeSecrets(input: string): string {
+  if (!input) return input;
+  return input
+    .replace(/AIza[0-9A-Za-z_-]{20,}/g, '[REDACTED_GEMINI_KEY]')
+    .replace(/AQ\.[0-9A-Za-z_.-]{20,}/g, '[REDACTED_GEMINI_KEY]')
+    .replace(/([?&]key=)[^&\s"'`]+/gi, '$1[REDACTED]')
+    .replace(/(x-goog-api-key["':\s=]+)[^\s"',}]+/gi, '$1[REDACTED]')
+    .replace(/(Authorization["':\s=]+Bearer\s+)[^\s"',}]+/gi, '$1[REDACTED]');
+}
+
 export interface HttpProviderOptions {
   readonly apiKey: string;
   readonly model: string;
@@ -128,7 +141,7 @@ export async function postJson(
       let detail = '';
       try {
         const errText = await response.text();
-        detail = errText.slice(0, 500);
+        detail = sanitizeSecrets(errText.slice(0, 500));
       } catch {
         // Ignore read errors
       }
@@ -147,7 +160,7 @@ export async function postJson(
       }
       throw new HttpProviderError(
         response.status,
-        `Provider request failed with HTTP ${response.status}.${detail ? ' ' + detail : ''}`.trim(),
+        sanitizeSecrets(`Provider request failed with HTTP ${response.status}.${detail ? ' ' + detail : ''}`.trim()),
         detail,
         retryAfterMs,
       );
@@ -160,7 +173,10 @@ export async function postJson(
   } catch (error) {
     if (error instanceof AISafetyError || error instanceof HttpProviderError) throw error;
     if (error instanceof Error && error.name === 'AbortError') throw new Error('Provider request timed out.');
-    throw error instanceof Error ? error : new Error('Provider request failed.');
+    if (error instanceof Error) {
+      throw new Error(sanitizeSecrets(error.message));
+    }
+    throw new Error('Provider request failed.');
   } finally {
     clearTimeout(timeout);
   }

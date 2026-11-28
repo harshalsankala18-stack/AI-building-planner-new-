@@ -856,6 +856,7 @@ export function sliceFlatRooms(params: {
 }): SliceFlatResult {
   const { flatId, flatLabel, unitType, box, corridorIsEast, corridorBox, envelope, rawRooms = [], placement, archetype } = params;
   const arch = resolveArchetypeSlicingParams(archetype);
+  const isCompactHousePlate = box.h < 7800 && box.w >= 8800;
   const rooms: ApartmentPlanRoom[] = [];
   const flatOpenings: ApartmentPlanOpening[] = [];
 
@@ -867,10 +868,10 @@ export function sliceFlatRooms(params: {
     // and bedZoneW has at least 2600 mm for side-by-side bathrooms (1300 mm each).
     livingZoneW = snap10(Math.max(3100, Math.min(box.w - 2600, box.w * arch.compactLivingRatio)));
     bedZoneW = box.w - livingZoneW;
-  } else if ((unitType === '3BHK' || unitType === '4BHK') && box.w >= 9100) {
-    // 2D Grid Subdivision for 3BHK and 4BHK requires bedZoneW >= 6000 mm (two >= 3000 mm bedroom columns)
-    const minLivW = box.w >= 9600 ? 3400 : 3100;
-    const minBedGridW = placement?.bedroomBalconies === 'ALL_BEDROOMS' && box.w >= 10600 ? 7200 : 6000;
+  } else if ((unitType === '3BHK' || unitType === '4BHK') && (isCompactHousePlate ? box.w >= 8800 : box.w >= 9100)) {
+    // 2D Grid Subdivision for 3BHK and 4BHK requires bedZoneW >= 6000 mm (5800 mm on compact house plate)
+    const minLivW = box.w >= 9600 ? 3400 : isCompactHousePlate ? 3000 : 3100;
+    const minBedGridW = placement?.bedroomBalconies === 'ALL_BEDROOMS' && box.w >= 10600 ? 7200 : isCompactHousePlate ? 5800 : 6000;
     livingZoneW = snap10(Math.max(minLivW, Math.min(box.w - minBedGridW, box.w * (arch.livingZoneRatio - 0.04))));
     bedZoneW = box.w - livingZoneW;
     const maxBedGridW = snap10(Math.max(minBedGridW, Math.min(box.w - minLivW, box.h * 1.25)));
@@ -940,13 +941,17 @@ export function sliceFlatRooms(params: {
   const minLivingDepth = box.h < 8000 ? 2700 : (box.h >= 9500 && box.h <= 10400 && unitType === '2BHK' ? 4100 : 3600);
   const minServiceDepthForRefuge = box.h >= 14000 ? Math.ceil(15_000_000 / Math.max(1, livW) / 10) * 10 : 0;
   const baseServiceDepth = Math.max(
-    utilDepth + 2600,
-    balconyDepth + 2600,
+    utilDepth + (isCompactHousePlate && box.h < 7600 ? 2000 : 2600),
+    balconyDepth + (isCompactHousePlate && box.h < 7600 ? 1550 : 2600),
     box.h > 15000
       ? snap10(Math.min(9000, Math.max(5500, box.h * 0.28)))
-      : snap10(Math.min(box.h * 0.45, Math.max(4200, box.h * 0.38))),
+      : isCompactHousePlate && box.h < 7600
+        ? snap10(Math.min(3100, box.h * 0.41))
+        : snap10(Math.min(box.h * 0.45, Math.max(4200, box.h * 0.38))),
   );
-  const serviceDepth = Math.min(box.h - minLivingDepth, Math.max(baseServiceDepth, kitchenTargetDepth, minServiceDepthForRefuge));
+  const serviceDepth = isCompactHousePlate && box.h < 7600
+    ? Math.min(3100, box.h - 4240)
+    : Math.min(box.h - minLivingDepth, Math.max(baseServiceDepth, kitchenTargetDepth, minServiceDepthForRefuge));
   const serviceY = isSouth ? box.y + box.h - serviceDepth : box.y;
 
   // Utility Balcony: exterior facade in kitchen column
@@ -1012,8 +1017,9 @@ export function sliceFlatRooms(params: {
   const maxLivHForRatio = snap10((3.35 * kitchArea) / Math.max(1, livingZoneW));
   const targetLivH = Math.min(8500, maxLivHForRatio);
   const maxFoyerH = Math.min(2200, snap10(Math.floor(11_500_000 / Math.max(1, livingZoneW))));
-  const rawFoyerH = remLivH > targetLivH ? Math.min(maxFoyerH, remLivH - targetLivH) : 0;
-  const hasFoyer = rawFoyerH >= 1200 && (remLivH - rawFoyerH) >= 3600 && unitType !== '3BHK' && unitType !== '4BHK';
+  const minHouseFoyerH = isCompactHousePlate && remLivH >= 4200 ? Math.min(maxFoyerH, Math.max(1200, remLivH - 3000)) : 0;
+  const rawFoyerH = Math.max(remLivH > targetLivH ? Math.min(maxFoyerH, remLivH - targetLivH) : 0, minHouseFoyerH);
+  const hasFoyer = rawFoyerH >= 1200 && (remLivH - rawFoyerH) >= (isCompactHousePlate ? 3000 : 3600) && (isCompactHousePlate || (unitType !== '3BHK' && unitType !== '4BHK'));
   const foyerH = hasFoyer ? rawFoyerH : 0;
   const livingH = remLivH - foyerH;
 
@@ -1462,22 +1468,29 @@ export function sliceFlatRooms(params: {
     const hasStudyRequested = rawRooms.some(r => r.type === 'study' || r.type === 'office' || r.name.toLowerCase().includes('study'));
     const hasPoojaRequested = rawRooms.some(r => r.type === 'pooja' || r.name.toLowerCase().includes('pooja') || r.name.toLowerCase().includes('mandir'));
 
-    if (bedZoneW >= 5800 && box.h >= 8000) {
+    if (bedZoneW >= 5800 && (isCompactHousePlate ? box.h >= 7200 : box.h >= 8000)) {
       // 3-Band 2D Grid Subdivision for 3BHK: eliminates narrow tunnel bedrooms and preserves 100% exterior ventilation.
       const colExtW = snap10(Math.max(3000, Math.min(bedZoneW - 2800, bedZoneW * 0.50)));
       const colIntW = bedZoneW - colExtW;
       const xExt = corridorIsEast ? bedZoneX : bedZoneX + colIntW;
       const xInt = corridorIsEast ? bedZoneX + colExtW : bedZoneX;
 
-      const minBothBedsH = Math.min(6000, snap10(box.h * 0.72));
-      const bathBlockH = snap10(Math.min(4800, Math.max(2200, Math.min(box.h - minBothBedsH, box.h * 0.24))));
+      const minBothBedsH = Math.min(6000, snap10(box.h * (isCompactHousePlate ? 0.82 : 0.72)));
+      const rawBathBlockH = isCompactHousePlate && box.h < 8400
+        ? Math.max(1300, Math.min(1800, box.h - 6000))
+        : snap10(Math.min(4800, Math.max(2200, Math.min(box.h - minBothBedsH, box.h * 0.24))));
+      const bathBlockH = snap10(rawBathBlockH);
       const availBedH = box.h - bathBlockH;
 
       const maxTwoBandH = snap10(Math.min(colExtW, colIntW) * 3.6);
       const extraBandH = availBedH > maxTwoBandH && availBedH - maxTwoBandH >= 2000 ? availBedH - maxTwoBandH : 0;
       const remBedH = availBedH - extraBandH;
 
-      let topBandH = snap10(Math.max(3000, Math.min(remBedH - 3000, remBedH * (arch.invertBedroomOrder ? 0.48 : 0.52))));
+      let topBandH = isCompactHousePlate
+        ? (remBedH >= 6000
+          ? snap10(Math.max(3000, Math.min(remBedH - 3000, remBedH * (arch.invertBedroomOrder ? 0.50 : 0.52))))
+          : snap10(Math.max(2900, Math.min(remBedH - 2900, remBedH * 0.5))))
+        : snap10(Math.max(3000, Math.min(remBedH - 3000, remBedH * (arch.invertBedroomOrder ? 0.48 : 0.52))));
       let botBandH = remBedH - topBandH;
 
       const livStart = livingRoom.rect.y;
@@ -1793,7 +1806,7 @@ export function sliceFlatRooms(params: {
     }
   } else {
     // 4BHK: 3-Band 2D Grid Subdivision (2x2 bedroom grid around central bathroom/passage band)
-    if (bedZoneW >= 5800 && box.h >= 8000) {
+    if (bedZoneW >= 5800 && (isCompactHousePlate ? box.h >= 7200 : box.h >= 8000)) {
       const colExtW = snap10(Math.max(3000, Math.min(bedZoneW - 2800, bedZoneW * 0.50)));
       const colIntW = bedZoneW - colExtW;
       const xExt = corridorIsEast ? bedZoneX : bedZoneX + colIntW;

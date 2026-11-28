@@ -322,6 +322,24 @@ function renderRooms(
         : [RoomType.Balcony, RoomType.Terrace, RoomType.Utility].includes(room.type) ? 'outdoor-hatch' : 'tile-hatch';
     if (!labelsOnly && ![RoomType.Staircase, RoomType.Lift].includes(room.type)) elements.push(`<polygon points="${points}" fill="url(#${hatch})" pointer-events="none"/>`);
 
+    const isOts = room.type === RoomType.OTS || architecturalSpaceRole(room) === 'OPEN_TO_SKY_VOID';
+    const isServiceShaft = room.type === RoomType.ServiceShaft;
+    if (!labelsOnly && (isOts || isServiceShaft)) {
+      const pts = room.boundary.points;
+      if (pts.length >= 4) {
+        const s0 = worldToScreen(pts[0]!, transform);
+        const s1 = worldToScreen(pts[1]!, transform);
+        const s2 = worldToScreen(pts[2]!, transform);
+        const s3 = worldToScreen(pts[3]!, transform);
+        const strokeColor = isOts ? '#475569' : '#64748b';
+        const dashAttr = isOts ? ' stroke-dasharray="4,3"' : '';
+        elements.push(
+          `<line x1="${s0.x.toFixed(1)}" y1="${s0.y.toFixed(1)}" x2="${s2.x.toFixed(1)}" y2="${s2.y.toFixed(1)}" stroke="${strokeColor}" stroke-width="0.9"${dashAttr} data-ots-cross="${isOts ? 'true' : 'false'}"/>`,
+          `<line x1="${s1.x.toFixed(1)}" y1="${s1.y.toFixed(1)}" x2="${s3.x.toFixed(1)}" y2="${s3.y.toFixed(1)}" stroke="${strokeColor}" stroke-width="0.9"${dashAttr} data-ots-cross="${isOts ? 'true' : 'false'}"/>`,
+        );
+      }
+    }
+
     const isStair = room.type === RoomType.Staircase || /stair/i.test(room.name);
     const isLift = room.type === RoomType.Lift || /lift/i.test(room.name);
     if (!labelsOnly && isStair && !floor.canonicalStaircases?.length) {
@@ -427,13 +445,17 @@ function renderRooms(
       }
       annotation.lines.forEach((line, i) => {
         if ((i === 0 && !showLabels) || (i === 2 && !showAreas)) return;
+        const displayLine =
+          i === 0 && (room.type === RoomType.OTS || architecturalSpaceRole(room) === 'OPEN_TO_SKY_VOID')
+            ? 'O.T.S. (OPEN TO SKY)'
+            : line;
         const point = worldToScreen(
           { x: labelCenter.x, y: labelCenter.y + (i - (annotation.lines.length - 1) / 2) * 1.65 * annotation.height },
           transform,
         );
         const height = scaleToScreen(annotation.height, transform);
         elements.push(
-          `<text x="${point.x}" y="${point.y}" text-anchor="middle" dominant-baseline="central" font-family="Arial, sans-serif" font-size="${height}" fill="#0f172a" paint-order="stroke" stroke="#ffffff" stroke-width="2.2" stroke-opacity="0.88" stroke-linejoin="round" data-room-name="${escapeXml(room.name)}">${escapeXml(line)}</text>`,
+          `<text x="${point.x}" y="${point.y}" text-anchor="middle" dominant-baseline="central" font-family="Arial, sans-serif" font-size="${height}" fill="#0f172a" paint-order="stroke" stroke="#ffffff" stroke-width="2.2" stroke-opacity="0.88" stroke-linejoin="round" data-room-name="${escapeXml(room.name)}">${escapeXml(displayLine)}</text>`,
         );
       });
     }
@@ -873,42 +895,160 @@ function renderStairs(floor: Floor, transform: ViewTransform): string {
   return `<g class="layer-stairs" data-layer="${RenderLayer.Stairs}">\n${elements.join('\n')}\n</g>`;
 }
 
+function renderStructuralGridAxes(floor: Floor, transform: ViewTransform): string {
+  const grid = floor.structuralGrid;
+  if (!grid || (grid.xAxes.length === 0 && grid.yAxes.length === 0)) return '';
+  const cols = floor.columns ?? [];
+  if (cols.length === 0 && floor.rooms.length === 0) return '';
+
+  const xs = cols.length > 0 ? cols.map((c) => c.position.x) : floor.rooms.flatMap((r) => [r.x, r.x + r.width]);
+  const ys = cols.length > 0 ? cols.map((c) => c.position.y) : floor.rooms.flatMap((r) => [r.y, r.y + r.height]);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const padMm = 1400;
+
+  const elements: string[] = [];
+  for (let i = 0; i < grid.xAxes.length; i++) {
+    const axis = grid.xAxes[i]!;
+    const top = worldToScreen({ x: axis.coordinateMm, y: minY - padMm }, transform);
+    const bot = worldToScreen({ x: axis.coordinateMm, y: maxY + padMm * 0.5 }, transform);
+    elements.push(
+      `<line x1="${top.x.toFixed(1)}" y1="${top.y.toFixed(1)}" x2="${bot.x.toFixed(1)}" y2="${bot.y.toFixed(1)}" stroke="#94a3b8" stroke-width="0.7" stroke-dasharray="6,3,1.5,3" data-structural-grid="X"/>`,
+      `<circle cx="${top.x.toFixed(1)}" cy="${(top.y - 10).toFixed(1)}" r="8" fill="#ffffff" stroke="#334155" stroke-width="1"/>`,
+      `<text x="${top.x.toFixed(1)}" y="${(top.y - 7).toFixed(1)}" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="8" font-weight="700" fill="#0f172a">${escapeXml(axis.label)}</text>`,
+    );
+    if (i > 0) {
+      const prev = grid.xAxes[i - 1]!;
+      const prevTop = worldToScreen({ x: prev.coordinateMm, y: minY - padMm }, transform);
+      const bayMm = Math.round(axis.coordinateMm - prev.coordinateMm);
+      const midX = (prevTop.x + top.x) / 2;
+      if (top.x - prevTop.x >= 34) {
+        elements.push(
+          `<text x="${midX.toFixed(1)}" y="${(top.y - 2).toFixed(1)}" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="7" font-weight="600" fill="#475569">${(bayMm / 1000).toFixed(2)}m</text>`,
+        );
+      }
+    }
+  }
+
+  for (let i = 0; i < grid.yAxes.length; i++) {
+    const axis = grid.yAxes[i]!;
+    const left = worldToScreen({ x: minX - padMm, y: axis.coordinateMm }, transform);
+    const right = worldToScreen({ x: maxX + padMm * 0.5, y: axis.coordinateMm }, transform);
+    elements.push(
+      `<line x1="${left.x.toFixed(1)}" y1="${left.y.toFixed(1)}" x2="${right.x.toFixed(1)}" y2="${right.y.toFixed(1)}" stroke="#94a3b8" stroke-width="0.7" stroke-dasharray="6,3,1.5,3" data-structural-grid="Y"/>`,
+      `<circle cx="${(left.x - 10).toFixed(1)}" cy="${left.y.toFixed(1)}" r="8" fill="#ffffff" stroke="#334155" stroke-width="1"/>`,
+      `<text x="${(left.x - 10).toFixed(1)}" y="${(left.y + 3).toFixed(1)}" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="8" font-weight="700" fill="#0f172a">${escapeXml(axis.label)}</text>`,
+    );
+    if (i > 0) {
+      const prev = grid.yAxes[i - 1]!;
+      const prevLeft = worldToScreen({ x: minX - padMm, y: prev.coordinateMm }, transform);
+      const bayMm = Math.round(axis.coordinateMm - prev.coordinateMm);
+      const midY = (prevLeft.y + left.y) / 2;
+      if (left.y - prevLeft.y >= 26) {
+        elements.push(
+          `<text x="${(left.x - 12).toFixed(1)}" y="${(midY + 2).toFixed(1)}" text-anchor="end" font-family="Inter, Arial, sans-serif" font-size="7" font-weight="600" fill="#475569">${(bayMm / 1000).toFixed(2)}m</text>`,
+        );
+      }
+    }
+  }
+
+  return `<g class="layer-structural-grid" data-layer="S-GRID" pointer-events="none">\n${elements.join('\n')}\n</g>`;
+}
+
 function renderColumns(floor: Floor, transform: ViewTransform): string {
   if (!floor.columns || floor.columns.length === 0) return '';
   const elements: string[] = [];
-  const showTags = floor.name === 'COLUMN_SCHEDULE_PLAN' || floor.id.includes('col_schedule');
+  const showTags = floor.name === 'COLUMN_SCHEDULE_PLAN' || floor.id.includes('col_schedule') || Boolean(floor.beams?.length);
   for (const col of floor.columns) {
     const sc = worldToScreen(col.position, transform);
-    const sw = Math.max(4, scaleToScreen(col.width || 450, transform));
-    const sd = Math.max(4, scaleToScreen(col.depth || 450, transform));
+    const sw = Math.max(5, scaleToScreen(col.width || 300, transform));
+    const sd = Math.max(5, scaleToScreen(col.depth || 450, transform));
     const x = sc.x - sw / 2;
     const y = sc.y - sd / 2;
+    const tagText = col.tag ?? col.gridReference ?? 'C';
     elements.push(
-      `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${sw.toFixed(1)}" height="${sd.toFixed(1)}" fill="#475569" fill-opacity="0.88" stroke="#0f172a" stroke-width="0.8" data-entity-type="column" data-entity-id="${escapeXml(col.id)}"><title>${escapeXml(col.gridReference || 'Structural Column')} (${col.width}x${col.depth}mm)</title></rect>`,
-      `<line x1="${x.toFixed(1)}" y1="${y.toFixed(1)}" x2="${(x + sw).toFixed(1)}" y2="${(y + sd).toFixed(1)}" stroke="#ffffff" stroke-width="0.6" pointer-events="none"/>`,
-      `<line x1="${(x + sw).toFixed(1)}" y1="${y.toFixed(1)}" x2="${x.toFixed(1)}" y2="${(y + sd).toFixed(1)}" stroke="#ffffff" stroke-width="0.6" pointer-events="none"/>`,
+      `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${sw.toFixed(1)}" height="${sd.toFixed(1)}" fill="#334155" fill-opacity="0.92" stroke="#0f172a" stroke-width="0.9" data-entity-type="column" data-entity-id="${escapeXml(col.id)}" data-column-tag="${escapeXml(tagText)}"><title>${escapeXml(tagText)} (${col.gridReference || 'GRID'}) ${col.width}x${col.depth}mm</title></rect>`,
+      `<line x1="${x.toFixed(1)}" y1="${y.toFixed(1)}" x2="${(x + sw).toFixed(1)}" y2="${(y + sd).toFixed(1)}" stroke="#ffffff" stroke-width="0.65" pointer-events="none"/>`,
+      `<line x1="${(x + sw).toFixed(1)}" y1="${y.toFixed(1)}" x2="${x.toFixed(1)}" y2="${(y + sd).toFixed(1)}" stroke="#ffffff" stroke-width="0.65" pointer-events="none"/>`,
     );
-    if (showTags && col.gridReference) {
+    if (showTags && sw >= 4) {
       elements.push(
-        `<text x="${sc.x.toFixed(1)}" y="${(y - 3).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="9" font-weight="700" fill="#dc2626">${escapeXml(col.gridReference)}</text>`,
+        `<text x="${sc.x.toFixed(1)}" y="${(y - 3).toFixed(1)}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="7.5" font-weight="800" fill="#1e293b" paint-order="stroke" stroke="#ffffff" stroke-width="2">${escapeXml(tagText)}</text>`,
       );
     }
   }
   return `<g class="layer-columns" data-layer="${RenderLayer.Columns}">\n${elements.join('\n')}\n</g>`;
 }
 
-function renderBeams(floor: Floor, transform: ViewTransform): string {
+function renderBeams(floor: Floor, transform: ViewTransform, viewportWidth: number = 1000): string {
   if (!floor.beams || floor.beams.length === 0) return '';
   const elements: string[] = [];
+  const palette: Record<string, { color: string; dash: string; width: number }> = {
+    PRIMARY: { color: '#d97706', dash: '5,2.5', width: 1.2 },
+    SECONDARY: { color: '#0284c7', dash: '3,2.5', width: 1.05 },
+    CANTILEVER: { color: '#dc2626', dash: '4,2', width: 1.2 },
+    PLINTH: { color: '#7c3aed', dash: '6,2.5', width: 1.2 },
+    STAIR_TRIMMER: { color: '#0f766e', dash: '4,2', width: 1.15 },
+  };
+
+  let primaryCount = 0;
+  let secondaryCount = 0;
+  let cantileverCount = 0;
+  let plinthCount = 0;
+
   for (const beam of floor.beams) {
+    if (beam.type === 'PRIMARY') primaryCount++;
+    else if (beam.type === 'SECONDARY') secondaryCount++;
+    else if (beam.type === 'CANTILEVER') cantileverCount++;
+    else if (beam.type === 'PLINTH') plinthCount++;
+
     const sp = worldToScreen(beam.startPoint, transform);
     const ep = worldToScreen(beam.endPoint, transform);
-    const strokeColor = beam.type === 'CANTILEVER' ? '#ef4444' : beam.type === 'SECONDARY' ? '#0284c7' : '#d97706';
-    const strokeWidth = beam.type === 'PRIMARY' ? 1.5 : 1.0;
+    const dx = ep.x - sp.x;
+    const dy = ep.y - sp.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 2) continue;
+
+    const style = palette[beam.type] ?? palette.PRIMARY!;
+    const halfOffset = Math.max(1.8, scaleToScreen(beam.widthMm || 230, transform) / 2);
+    const nx = -dy / len;
+    const ny = dx / len;
+    const mx = (sp.x + ep.x) / 2;
+    const my = (sp.y + ep.y) / 2;
+    const labelText = beam.tag
+      ? `${beam.tag} ${beam.widthMm}x${beam.depthMm}`
+      : `${beam.widthMm}x${beam.depthMm}`;
+
+    // Parallel double-dashed CAD structural beam edges + faint axis centerline
     elements.push(
-      `<line x1="${sp.x.toFixed(1)}" y1="${sp.y.toFixed(1)}" x2="${ep.x.toFixed(1)}" y2="${ep.y.toFixed(1)}" stroke="${strokeColor}" stroke-width="${strokeWidth}" stroke-dasharray="4,2" data-entity-type="beam" data-entity-id="${escapeXml(beam.id)}"><title>${escapeXml(beam.id)} (${beam.widthMm}x${beam.depthMm}mm ${beam.type})</title></line>`,
+      `<g data-entity-type="beam" data-entity-id="${escapeXml(beam.id)}" data-beam-type="${escapeXml(beam.type)}" data-beam-tag="${escapeXml(beam.tag ?? '')}">`,
+      `<line x1="${(sp.x + nx * halfOffset).toFixed(1)}" y1="${(sp.y + ny * halfOffset).toFixed(1)}" x2="${(ep.x + nx * halfOffset).toFixed(1)}" y2="${(ep.y + ny * halfOffset).toFixed(1)}" stroke="${style.color}" stroke-width="${style.width}" stroke-dasharray="${style.dash}"/>`,
+      `<line x1="${(sp.x - nx * halfOffset).toFixed(1)}" y1="${(sp.y - ny * halfOffset).toFixed(1)}" x2="${(ep.x - nx * halfOffset).toFixed(1)}" y2="${(ep.y - ny * halfOffset).toFixed(1)}" stroke="${style.color}" stroke-width="${style.width}" stroke-dasharray="${style.dash}"/>`,
+      `<title>${escapeXml(labelText)} (${beam.type}, span ${beam.spanMm ?? Math.round(Math.hypot(beam.endPoint.x - beam.startPoint.x, beam.endPoint.y - beam.startPoint.y))}mm)</title>`,
     );
+    if (len >= 55) {
+      elements.push(
+        `<text x="${mx.toFixed(1)}" y="${(my - 2.5).toFixed(1)}" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="6.8" font-weight="700" fill="${style.color}" paint-order="stroke" stroke="#ffffff" stroke-width="2">${escapeXml(labelText)}</text>`,
+      );
+    }
+    elements.push(`</g>`);
   }
+
+  // Compact on-canvas Structural Schedule summary pill
+  const colsCount = floor.columns?.length ?? 0;
+  const schedX = Math.max(18, viewportWidth - 255);
+  const schedY = 16;
+  elements.push(
+    `<g class="structural-schedule-box" data-structural-schedule="true" pointer-events="none">
+      <rect x="${schedX}" y="${schedY}" width="238" height="44" rx="5" fill="#ffffff" fill-opacity="0.93" stroke="#cbd5e1" stroke-width="0.9"/>
+      <text x="${schedX + 8}" y="${schedY + 13}" font-family="Inter, Arial, sans-serif" font-size="7.5" font-weight="800" fill="#0f172a">RCC STRUCTURAL SCHEDULE</text>
+      <text x="${schedX + 8}" y="${schedY + 25}" font-family="Inter, Arial, sans-serif" font-size="7" fill="#334155">Cols: ${colsCount} (300x300/450) · B1: ${primaryCount} · SB1: ${secondaryCount}</text>
+      <text x="${schedX + 8}" y="${schedY + 36}" font-family="Inter, Arial, sans-serif" font-size="7" fill="#475569">PB1: ${plinthCount} · CB1: ${cantileverCount} · Grid: ${floor.structuralGrid?.xAxes.length ?? 0}x${floor.structuralGrid?.yAxes.length ?? 0}</text>
+    </g>`,
+  );
+
   return `<g class="layer-beams" data-layer="beams">\n${elements.join('\n')}\n</g>`;
 }
 
@@ -1164,10 +1304,12 @@ export function renderFloor(
     resolved.layers[RenderLayer.Furniture] ? renderPlancraftFurniture(floor, transform) : '',
     // 3. Wall Polygons (230/150/115/100mm) & Structural Columns
     resolved.layers[RenderLayer.Walls] ? renderWalls(floor, transform) : '',
+    (resolved.layers[RenderLayer.Columns] || resolved.layers[RenderLayer.Beams] || resolved.disciplines?.STRUCTURAL)
+      ? renderStructuralGridAxes(floor, transform) : '',
     (resolved.layers[RenderLayer.Columns] || resolved.disciplines?.STRUCTURAL)
       ? renderColumns(floor, transform) : '',
     (resolved.layers[RenderLayer.Beams] || resolved.disciplines?.STRUCTURAL)
-      ? renderBeams(floor, transform) : '',
+      ? renderBeams(floor, transform, viewportWidth) : '',
     // 4. Doors & 90° Swing Arcs + Windows + Stairs
     resolved.layers[RenderLayer.Openings] ? renderDoors(floor, transform) : '',
     resolved.layers[RenderLayer.Openings] ? renderWindows(floor, transform, building.metadata?.generationBrief?.includeWindowChajjas !== false) : '',

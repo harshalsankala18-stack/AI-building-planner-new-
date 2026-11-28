@@ -12,6 +12,7 @@ export interface JobRouteDeps {
   repository: ProjectRepository;
   storage: ObjectStorageAdapter;
   workerRole?: string;
+  getLastFallbackReason?: () => string | null;
 }
 
 export async function handleJobRoutes(
@@ -62,7 +63,17 @@ export async function handleJobRoutes(
 
     const hasGemini = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim().length > 0);
     const hasOpenAi = Boolean(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim().length > 0);
-    const aiProvider = hasGemini ? 'gemini' : hasOpenAi ? 'openai' : 'rule-based';
+    const configuredAiProvider = (process.env.AI_PROVIDER ?? '').trim().toLowerCase();
+    const aiProvider =
+      hasGemini && (configuredAiProvider === '' || configuredAiProvider === 'gemini')
+        ? 'gemini'
+        : hasOpenAi
+          ? 'openai'
+          : 'rule-based';
+    const activeModel =
+      (process.env.GEMINI_PRIMARY_MODEL ?? process.env.GEMINI_MODEL ?? '').trim() || 'gemini-3.8-flash';
+    const fallbackModel =
+      (process.env.GEMINI_FALLBACK_MODEL ?? '').trim() || 'gemini-3.5-flash-lite';
 
     sendJson(response, 200, {
       status: 'ok',
@@ -71,6 +82,9 @@ export async function handleJobRoutes(
       queueMode: deps.jobQueue.mode,
       workerRole: deps.workerRole ?? process.env.WORKER_ROLE ?? 'all',
       aiProvider,
+      activeModel,
+      fallbackModel,
+      lastFallbackReason: deps.getLastFallbackReason ? deps.getLastFallbackReason() : null,
       geminiConfigured: hasGemini,
       openaiConfigured: hasOpenAi,
       capabilities: {

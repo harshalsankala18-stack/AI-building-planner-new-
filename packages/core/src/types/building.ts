@@ -26,7 +26,7 @@ import type {
 } from './enums';
 import type { CanonicalFurnitureItem, PlancraftDslOutput } from './furniture';
 import type { OpeningStyleId, DoorCategory, WindowCategory } from './customizable';
-import type { StructuralBeam, CanonicalStaircase } from './structural';
+import type { StructuralBeam, StructuralGrid, CanonicalStaircase } from './structural';
 
 // ─── Site & Plot ────────────────────────────────────────────────────────────
 
@@ -256,6 +256,7 @@ export interface Stair {
 export interface Column {
   readonly id: string;
   readonly floorId: string;
+  readonly tag?: string;
   readonly position: Point;
   readonly width: number;
   readonly depth: number;
@@ -294,6 +295,7 @@ export interface Floor {
   readonly stairs: readonly Stair[];
   readonly columns: readonly Column[];
   readonly beams?: readonly StructuralBeam[];
+  readonly structuralGrid?: StructuralGrid;
   readonly canonicalStaircases?: readonly CanonicalStaircase[];
   readonly furniture?: readonly CanonicalFurnitureItem[];
   readonly plancraftDsl?: PlancraftDslOutput;

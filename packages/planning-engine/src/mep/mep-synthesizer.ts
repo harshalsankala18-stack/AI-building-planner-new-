@@ -30,12 +30,18 @@ import {
 
 interface Box { x: number; y: number; w: number; h: number }
 
-const ELECTRICAL_KINDS = new Set<MepSymbolKind>(['DB', 'FAN', 'DL', 'SB', 'SB_2WAY', 'SOCKET_16A', 'GY', 'AC_IDU', 'AC_ODU']);
-const PLUMBING_KINDS = new Set<MepSymbolKind>(['PLUMB_SHAFT', 'FT', 'NT']);
+const ELECTRICAL_KINDS = new Set<MepSymbolKind>([
+  'DB', 'LT_PANEL', 'ES', 'FAN', 'DL', 'PL', 'BL', 'SB', 'SB_2WAY', 'SOCKET_6A', 'SOCKET_16A', 'TV_DATA', 'GY', 'EF', 'AC_IDU', 'AC_ODU',
+]);
+const PLUMBING_KINDS = new Set<MepSymbolKind>([
+  'PLUMB_SHAFT', 'FT', 'NT', 'WC', 'WB', 'SH', 'KS', 'WM', 'RWP', 'UGWT', 'OHT', 'IC', 'GT',
+]);
 
 const LABELS: Readonly<Record<MepSymbolKind, string>> = {
-  DB: 'DB', FAN: 'FAN', DL: 'DL', SB: 'SB', SB_2WAY: '2W-SB', SOCKET_16A: '16A', GY: 'GY',
-  AC_IDU: 'AC-IDU', AC_ODU: 'AC-ODU', PLUMB_SHAFT: 'PLUMB SHAFT', FT: 'FT', NT: 'NT',
+  DB: 'DB', LT_PANEL: 'LT', ES: 'ES', FAN: 'CF', DL: 'CL', PL: 'PL', BL: 'BL',
+  SB: 'SB', SB_2WAY: '2W-SB', SOCKET_6A: '6A', SOCKET_16A: '16A', TV_DATA: 'TV', GY: 'GY', EF: 'EF',
+  AC_IDU: 'AC', AC_ODU: 'ODU', PLUMB_SHAFT: 'PS', FT: 'FT', NT: 'NT',
+  WC: 'WC', WB: 'WB', SH: 'SH', KS: 'KS', WM: 'WM', RWP: 'RWP', UGWT: 'UGWT', OHT: 'OHT', IC: 'IC', GT: 'GT',
   FHR: 'FHR', FHR_HR: 'FHR-HR', FACP: 'FACP', SD: 'SD', HD: 'HD', EXIT_SIGN: 'EXIT', SPRINKLER: 'SPK',
   FE: 'FE',
 };
@@ -133,7 +139,19 @@ class FloorBuilder {
       discipline,
       layer,
       points: points.map(p => ({ x: r10(p.x), y: r10(p.y) })),
-      ...(kind === 'SP' ? { diameterMm: 110 } : kind === 'WP' ? { diameterMm: 75 } : kind === 'CWS' || kind === 'HWS' ? { diameterMm: 20 } : kind === 'FIRE_PIPE' ? { diameterMm: 100 } : {}),
+      ...(kind === 'SP'
+        ? { diameterMm: 110, label: extra.label ?? 'Ø110 SOIL' }
+        : kind === 'WP'
+          ? { diameterMm: 75, label: extra.label ?? 'Ø75 WASTE' }
+          : kind === 'RWP_PIPE'
+            ? { diameterMm: 100, label: extra.label ?? 'Ø100 RWP' }
+            : kind === 'CWS'
+              ? { diameterMm: 20, label: extra.label ?? 'Ø20 CWS' }
+              : kind === 'HWS'
+                ? { diameterMm: 20, label: extra.label ?? 'Ø20 HWS' }
+                : kind === 'FIRE_PIPE'
+                  ? { diameterMm: 100 }
+                  : {}),
       ...extra,
     });
   }
@@ -202,17 +220,28 @@ function synthesizeUnitElectrical(fb: FloorBuilder, floor: Floor, unitRooms: Roo
     const b = roomBox(room);
     const c = center(b);
     if (isLivingLike(room) || isBedroom(room)) {
-      fb.sym('FAN', c, { roomId: room.id, unitId });
+      fb.sym('FAN', c, { roomId: room.id, unitId, label: 'CF' });
       fans.push(c);
       const off = Math.max(b.w, b.h) / 4;
       const horizontal = b.w >= b.h;
-      fb.sym('DL', horizontal ? { x: c.x - off, y: c.y } : { x: c.x, y: c.y - off }, { roomId: room.id, unitId });
-      fb.sym('DL', horizontal ? { x: c.x + off, y: c.y } : { x: c.x, y: c.y + off }, { roomId: room.id, unitId });
+      fb.sym('DL', horizontal ? { x: c.x - off, y: c.y } : { x: c.x, y: c.y - off }, { roomId: room.id, unitId, label: 'CL' });
+      fb.sym('DL', horizontal ? { x: c.x + off, y: c.y } : { x: c.x, y: c.y + off }, { roomId: room.id, unitId, label: 'CL' });
+      if (room.type === RoomType.Dining) {
+        fb.sym('PL', c, { roomId: room.id, unitId, label: 'PL' });
+      }
       if (isLivingLike(room)) {
-        // Living TV Feature Wall 6A+16A Media Power Point
         const tvSock = { x: b.x + b.w * 0.5, y: b.y + Math.min(b.h - 200, 220) };
         fb.sym('SOCKET_16A', tvSock, { roomId: room.id, unitId, label: 'TV WALL 16A' });
+        fb.sym('TV_DATA', { x: tvSock.x + 220, y: tvSock.y }, { roomId: room.id, unitId, label: 'TV/DATA' });
+        fb.sym('SOCKET_6A', { x: b.x + 220, y: c.y }, { roomId: room.id, unitId, label: '6A SOFA' });
         powerPts.push(tvSock);
+      }
+      if (isBedroom(room)) {
+        fb.sym('SOCKET_6A', { x: c.x - Math.min(b.w * 0.3, 600), y: b.y + 220 }, { roomId: room.id, unitId, label: '6A BED' });
+        fb.sym('SOCKET_6A', { x: c.x + Math.min(b.w * 0.3, 600), y: b.y + 220 }, { roomId: room.id, unitId, label: '6A BED' });
+        if (room === master) {
+          fb.sym('TV_DATA', { x: c.x, y: b.y + b.h - 220 }, { roomId: room.id, unitId, label: 'TV/DATA' });
+        }
       }
       for (const wall of exteriorWalls(floor, room).slice(0, 1)) {
         const mid = { x: (wall.startPoint.x + wall.endPoint.x) / 2, y: (wall.startPoint.y + wall.endPoint.y) / 2 };
@@ -223,6 +252,9 @@ function synthesizeUnitElectrical(fb: FloorBuilder, floor: Floor, unitRooms: Roo
         acPts.push(idu);
       }
     }
+    if (isBalconyLike(room) || room.type === RoomType.Utility) {
+      fb.sym('BL', c, { roomId: room.id, unitId, label: 'BL' });
+    }
     if (room === master) {
       const side = b.w >= b.h ? { x: 0, y: 1 } : { x: 1, y: 0 };
       const spread = Math.min(b.w, b.h) * 0.3;
@@ -230,6 +262,8 @@ function synthesizeUnitElectrical(fb: FloorBuilder, floor: Floor, unitRooms: Roo
       fb.sym('SB_2WAY', { x: c.x + side.x * spread, y: c.y + side.y * spread }, { roomId: room.id, unitId, label: '2W-SB R' });
     }
     if (isKitchen(room)) {
+      fb.sym('DL', c, { roomId: room.id, unitId, label: 'CL' });
+      fb.sym('EF', { x: b.x + b.w - 220, y: b.y + 220 }, { roomId: room.id, unitId, label: 'EF' });
       const labels = ['16A FRIDGE', '16A MICROWAVE', '16A HOB/CHIMNEY'];
       labels.forEach((label, i) => {
         const t = (i + 1) / (labels.length + 1);
@@ -238,7 +272,14 @@ function synthesizeUnitElectrical(fb: FloorBuilder, floor: Floor, unitRooms: Roo
         powerPts.push(pt);
       });
     }
+    if (room.type === RoomType.Utility) {
+      const wmSock = { x: b.x + 250, y: c.y };
+      fb.sym('SOCKET_16A', wmSock, { roomId: room.id, unitId, label: '16A WM' });
+      powerPts.push(wmSock);
+    }
     if (isBath(room)) {
+      fb.sym('DL', c, { roomId: room.id, unitId, label: 'CL' });
+      fb.sym('EF', { x: b.x + 240, y: b.y + 240 }, { roomId: room.id, unitId, label: 'EF' });
       const gyPt = { x: b.x + b.w - 300, y: b.y + 300 };
       fb.sym('GY', gyPt, { roomId: room.id, unitId, label: 'GY 16A' });
       powerPts.push(gyPt);
@@ -258,25 +299,47 @@ function synthesizeUnitElectrical(fb: FloorBuilder, floor: Floor, unitRooms: Roo
 const isBalconyLike = (r: Room) => r.type === RoomType.Balcony;
 
 function synthesizeUnitPlumbing(fb: FloorBuilder, floor: Floor, unitRooms: Room[], unitId: string, shafts: Map<string, Box>): void {
+  const nearestShaftPt = [...shafts.values()][0] ? center([...shafts.values()][0]!) : undefined;
   for (const room of unitRooms) {
     const b = roomBox(room);
-    if (isWetTrapRoom(room)) fb.sym('FT', { x: b.x + b.w / 2, y: b.y + b.h / 2 }, { roomId: room.id, unitId });
-    if (!isBath(room) && !isKitchen(room)) continue;
-    const shaft = shafts.get(room.id) ?? shaftForBath(floor, room);
-    const sc = center(shaft);
+    if (isWetTrapRoom(room)) {
+      fb.sym('FT', { x: b.x + b.w / 2, y: b.y + b.h / 2 }, { roomId: room.id, unitId, label: 'FT' });
+    }
+    if (room.type === RoomType.Balcony) {
+      const rwpPt = { x: b.x + 200, y: b.y + b.h - 200 };
+      fb.sym('RWP', rwpPt, { roomId: room.id, unitId, label: 'RWP Ø100' });
+      const ftPt = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+      fb.run('RWP_PIPE', [ftPt, rwpPt], { roomId: room.id, label: 'Ø100 RWP' });
+    }
+    if (!isBath(room) && !isKitchen(room) && room.type !== RoomType.Utility) continue;
+    const shaft = shafts.get(room.id) ?? nearestShaftPt ? shafts.get(room.id) : shaftForBath(floor, room);
+    const sc = shaft ? center(shaft) : nearestShaftPt ?? { x: b.x + 150, y: b.y + 150 };
     if (isBath(room)) {
-      const nt = fb.sym('NT', { x: b.x + b.w * 0.7, y: b.y + b.h * 0.7 }, { roomId: room.id, unitId, label: 'NT (SHOWER)' });
-      const wc = { x: b.x + b.w * 0.25, y: b.y + b.h - 450 };
-      const basin = { x: b.x + b.w * 0.75, y: b.y + 350 };
-      fb.run('SP', [wc, { x: wc.x, y: sc.y }, sc], { roomId: room.id });
-      fb.run('WP', [basin, { x: basin.x, y: sc.y }, sc], { roomId: room.id });
-      fb.run('WP', [nt.position, { x: nt.position.x, y: sc.y }, sc], { roomId: room.id });
-      fb.run('CWS', [sc, { x: sc.x + 120, y: wc.y }, wc], { roomId: room.id });
-      fb.run('HWS', [sc, { x: sc.x - 120, y: basin.y }, basin], { roomId: room.id });
-    } else {
-      const sink = { x: b.x + b.w / 2, y: b.y + 350 };
-      fb.run('WP', [sink, { x: sink.x, y: sc.y }, sc], { roomId: room.id });
-      fb.run('CWS', [sc, { x: sc.x, y: sink.y }, sink], { roomId: room.id });
+      const nt = fb.sym('NT', { x: b.x + b.w * 0.72, y: b.y + b.h * 0.72 }, { roomId: room.id, unitId, label: 'NT' });
+      const wcPt = { x: b.x + b.w * 0.28, y: b.y + b.h - 400 };
+      const basinPt = { x: b.x + b.w * 0.72, y: b.y + 320 };
+      const shPt = { x: b.x + b.w * 0.78, y: b.y + b.h * 0.55 };
+      const gyPt = { x: b.x + b.w - 300, y: b.y + 300 };
+      fb.sym('WC', wcPt, { roomId: room.id, unitId, label: 'WC' });
+      fb.sym('WB', basinPt, { roomId: room.id, unitId, label: 'WB' });
+      fb.sym('SH', shPt, { roomId: room.id, unitId, label: 'SH' });
+      // Orthogonal Soil (Ø110mm), Waste (Ø75mm), Cold (Ø20mm) & Hot (Ø20mm) lines
+      fb.run('SP', [wcPt, { x: wcPt.x, y: sc.y }, sc], { roomId: room.id, label: 'Ø110 SOIL' });
+      fb.run('WP', [basinPt, { x: basinPt.x, y: sc.y }, sc], { roomId: room.id, label: 'Ø75 WASTE' });
+      fb.run('WP', [nt.position, { x: nt.position.x, y: sc.y }, sc], { roomId: room.id, label: 'Ø75 WASTE' });
+      fb.run('CWS', [sc, { x: sc.x, y: wcPt.y }, wcPt], { roomId: room.id, label: 'Ø20 CWS' });
+      fb.run('CWS', [sc, { x: basinPt.x, y: sc.y }, basinPt], { roomId: room.id, label: 'Ø20 CWS' });
+      fb.run('HWS', [gyPt, { x: basinPt.x, y: gyPt.y }, basinPt, shPt], { roomId: room.id, label: 'Ø20 HWS' });
+    } else if (isKitchen(room)) {
+      const sinkPt = { x: b.x + b.w / 2, y: b.y + 320 };
+      fb.sym('KS', sinkPt, { roomId: room.id, unitId, label: 'KS' });
+      fb.run('WP', [sinkPt, { x: sinkPt.x, y: sc.y }, sc], { roomId: room.id, label: 'Ø75 WASTE' });
+      fb.run('CWS', [sc, { x: sc.x, y: sinkPt.y }, sinkPt], { roomId: room.id, label: 'Ø20 CWS' });
+    } else if (room.type === RoomType.Utility) {
+      const wmPt = { x: b.x + 280, y: b.y + b.h / 2 };
+      fb.sym('WM', wmPt, { roomId: room.id, unitId, label: 'WM' });
+      fb.run('WP', [wmPt, { x: wmPt.x, y: sc.y }, sc], { roomId: room.id, label: 'Ø75 WM DRAIN' });
+      fb.run('CWS', [sc, { x: wmPt.x, y: sc.y }, wmPt], { roomId: room.id, label: 'Ø20 WM CWS' });
     }
   }
 }
@@ -462,9 +525,14 @@ export function synthesizeMepEngineering(building: Building): CoordinatedMepEngi
         const box = stack?.box ?? own;
         stackBoxes.set(bath.id, box);
       }
-      for (const stack of stackByKey.values()) {
+      for (const [idx, stack] of [...stackByKey.values()].entries()) {
         stack.floorIds.push(floor.id);
-        fb.sym('PLUMB_SHAFT', center(stack.box), { widthMm: stack.box.w, depthMm: stack.box.h, label: 'PLUMB SHAFT 600x900' });
+        fb.sym('PLUMB_SHAFT', center(stack.box), { widthMm: stack.box.w, depthMm: stack.box.h, label: `PS${idx + 1} 900x1500` });
+      }
+      const lobby = floor.rooms.find(isCommonCirculation) ?? floor.rooms.find(isLivingLike);
+      if (lobby) {
+        const lb = roomBox(lobby);
+        fb.sym('ES', { x: lb.x + 250, y: lb.y + 250 }, { roomId: lobby.id, widthMm: 600, depthMm: 900, label: 'ES' });
       }
       for (const k of floor.rooms.filter(isKitchen)) {
         const nearest = [...stackByKey.values()].sort((a, b) => dist(center(a.box), center(roomBox(k))) - dist(center(b.box), center(roomBox(k))))[0];
@@ -483,6 +551,23 @@ export function synthesizeMepEngineering(building: Building): CoordinatedMepEngi
       synthesizeCantilevers(fb, floor);
       synthesizeFire(fb, floor, false);
     } else if (isStilt(floor)) {
+      const lobby = floor.rooms.find(isCommonCirculation) ?? floor.rooms[0];
+      if (lobby) {
+        const lb = roomBox(lobby);
+        fb.sym('LT_PANEL', { x: lb.x + 350, y: lb.y + 350 }, { roomId: lobby.id, widthMm: 900, depthMm: 450, label: 'MAIN LT PANEL' });
+        fb.sym('ES', { x: lb.x + 350, y: lb.y + Math.min(lb.h - 250, 950) }, { roomId: lobby.id, widthMm: 600, depthMm: 900, label: 'ES' });
+      }
+      const bPts = floor.boundary?.points ?? [];
+      if (bPts.length >= 3) {
+        const minX = Math.min(...bPts.map(p => p.x));
+        const maxX = Math.max(...bPts.map(p => p.x));
+        const minY = Math.min(...bPts.map(p => p.y));
+        const maxY = Math.max(...bPts.map(p => p.y));
+        fb.sym('UGWT', { x: minX + 1200, y: maxY - 1200 }, { widthMm: 2200, depthMm: 1500, label: 'UGWT' });
+        fb.sym('IC', { x: minX + 400, y: minY + 400 }, { label: 'IC-1' });
+        fb.sym('IC', { x: maxX - 400, y: minY + 400 }, { label: 'IC-2' });
+        fb.sym('GT', { x: minX + 900, y: minY + 600 }, { label: 'GT' });
+      }
       const byUnit = new Map<string, Room[]>();
       for (const r of floor.rooms) {
         const uKey = r.unitId ?? 'stilt_common';
@@ -493,14 +578,28 @@ export function synthesizeMepEngineering(building: Building): CoordinatedMepEngi
       }
       synthesizeFire(fb, floor, true);
       const stacks = [...stackByKey.values()];
-      for (const stack of stacks) {
+      for (const [idx, stack] of stacks.entries()) {
         stack.floorIds.push(floor.id);
-        fb.sym('PLUMB_SHAFT', center(stack.box), { widthMm: stack.box.w, depthMm: stack.box.h, label: 'STACK TO COLLECTOR' });
+        fb.sym('PLUMB_SHAFT', center(stack.box), { widthMm: stack.box.w, depthMm: stack.box.h, label: `PS${idx + 1} COLLECTOR` });
       }
       if (stacks.length >= 1) {
         const pts = stacks.map(s => center(s.box)).sort((a, b) => a.x - b.x || a.y - b.y);
         const collectorY = Math.min(...floor.boundary.points.map(p => p.y)) + 300;
-        fb.run('SP', [...pts.map(p => ({ x: p.x, y: collectorY })), ...(pts.length === 1 ? [{ x: pts[0]!.x + 1000, y: collectorY }] : [])]);
+        fb.run('SP', [...pts.map(p => ({ x: p.x, y: collectorY })), ...(pts.length === 1 ? [{ x: pts[0]!.x + 1000, y: collectorY }] : [])], { label: 'Ø110 MAIN SEWER' });
+      }
+    } else if (isRoof(floor)) {
+      const bPts = floor.boundary?.points ?? [];
+      if (bPts.length >= 3) {
+        const minX = Math.min(...bPts.map(p => p.x));
+        const maxX = Math.max(...bPts.map(p => p.x));
+        const minY = Math.min(...bPts.map(p => p.y));
+        const maxY = Math.max(...bPts.map(p => p.y));
+        fb.sym('OHT', { x: (minX + maxX) / 2, y: minY + 1800 }, { widthMm: 2400, depthMm: 1800, label: 'OHT' });
+        fb.sym('RWP', { x: minX + 350, y: minY + 350 }, { label: 'RWP Ø100' });
+        fb.sym('RWP', { x: maxX - 350, y: minY + 350 }, { label: 'RWP Ø100' });
+        fb.sym('RWP', { x: minX + 350, y: maxY - 350 }, { label: 'RWP Ø100' });
+        fb.sym('RWP', { x: maxX - 350, y: maxY - 350 }, { label: 'RWP Ø100' });
+        fb.run('RWP_PIPE', [{ x: minX + 350, y: minY + 350 }, { x: maxX - 350, y: minY + 350 }], { label: 'Ø100 RWP' });
       }
     }
     plans.push(fb.build());

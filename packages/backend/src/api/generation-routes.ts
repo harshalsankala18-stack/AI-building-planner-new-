@@ -91,16 +91,17 @@ export async function handleProjectGeneration(
       config: proposalResult.enrichedConfig,
     });
 
-    // If compliance < 85 after deterministic solver loop, escalate up to 3 corrective re-proposals
+    const initialTelemetry = proposalResult.telemetry;
+    // If compliance < 85 after deterministic solver loop, escalate deterministically without extra Gemini calls (1-call rule)
     for (let retryIdx = 1; !complianceReport.passed && retryIdx <= 3; retryIdx++) {
       const priorHash = (pipelineResult.building.metadata as unknown as Record<string, unknown>)?.topologyHash;
       const updatedRejected = typeof priorHash === 'string' && priorHash.length > 0
         ? [...new Set([...parsed.rejectedTopologyHashes, priorHash])]
         : [...parsed.rejectedTopologyHashes];
       const correctiveHint = complianceReport.violations.slice(0, 3).join(' ');
-      const retryProposal = await generateArchitecturalProposal(deps.gemini, {
+      const retryProposal = await generateArchitecturalProposal(null, {
         config: {
-          ...parsed.config,
+          ...proposalResult.enrichedConfig,
           aiPrompt: `${parsed.config.aiPrompt ?? ''} [COMPLIANCE CORRECTION ${retryIdx}: ${correctiveHint}]`.trim(),
         },
         seed: parsed.seed + retryIdx * 12,
@@ -115,7 +116,7 @@ export async function handleProjectGeneration(
         (retryCompliance.redConflictCount === complianceReport.redConflictCount &&
           retryCompliance.score >= complianceReport.score);
       if (retryIsBetter) {
-        proposalResult = retryProposal;
+        proposalResult = { ...retryProposal, telemetry: initialTelemetry };
         pipelineResult = retryPipeline;
         complianceReport = retryCompliance;
       }
@@ -129,7 +130,7 @@ export async function handleProjectGeneration(
         building: synthesizedBuilding,
         complianceReport,
         proposal: proposalResult.proposal,
-        telemetry: proposalResult.telemetry,
+        telemetry: initialTelemetry,
       },
     };
   } catch (error) {

@@ -7,14 +7,36 @@
 
 import type { Point, Polygon } from './geometry';
 
-export type StructuralBeamType = 'PRIMARY' | 'SECONDARY' | 'CANTILEVER';
+export type StructuralBeamType =
+  | 'PRIMARY'
+  | 'SECONDARY'
+  | 'CANTILEVER'
+  | 'PLINTH'
+  | 'STAIR_TRIMMER';
+
+/** A structural grid axis line (`1,2,3...` along X or `A,B,C...` along Y). */
+export interface StructuralGridAxis {
+  readonly id: string;
+  readonly label: string;
+  readonly orientation: 'X' | 'Y';
+  readonly coordinateMm: number;
+}
+
+/** Orthogonal structural gridline axes for a floor. */
+export interface StructuralGrid {
+  readonly xAxes: readonly StructuralGridAxis[];
+  readonly yAxes: readonly StructuralGridAxis[];
+}
 
 /** A structural reinforced concrete (RCC) beam on CAD layer S-BEAM. */
 export interface StructuralBeam {
   readonly id: string;
   readonly floorId: string;
+  readonly tag?: string;
+  readonly spanMm?: number;
   readonly startColumnId?: string;
   readonly endColumnId?: string;
+  readonly connectedColumnIds?: readonly string[];
   readonly startPoint: Point;
   readonly endPoint: Point;
   readonly widthMm: number; // default 230

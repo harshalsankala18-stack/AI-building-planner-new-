@@ -286,7 +286,7 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
 
     const slabId = toPascalId('slab', floor.id);
 
-    // Carve matching stairwell cutout holes in upper floor slab for stairs ascending from lower floor
+    // Carve matching stairwell & O.T.S. cutout holes in upper floor slab
     const slabHoles: [number, number][][] = [];
     if (floor.level > 0) {
       const lowerFloor = building.floors.find(f => f.level === floor.level - 1);
@@ -307,6 +307,21 @@ export function canonicalToPascal(building: Building, options: CanonicalToPascal
             [sx + sw, sy + sl],
             [sx, sy + sl],
           ]);
+        }
+      }
+      for (const rm of floor.rooms) {
+        if (rm.type === RoomType.OTS || rm.tags?.includes('shaft:ots')) {
+          if (rm.boundary?.points && rm.boundary.points.length >= 3) {
+            slabHoles.push(
+              rm.boundary.points.map(p => [safeNum(p.x) / 1000, safeNum(p.y) / 1000] as [number, number]),
+            );
+          } else if (rm.width > 100 && rm.height > 100) {
+            const rx = safeNum(rm.x) / 1000;
+            const ry = safeNum(rm.y) / 1000;
+            const rw = safeNum(rm.width) / 1000;
+            const rh = safeNum(rm.height) / 1000;
+            slabHoles.push([[rx, ry], [rx + rw, ry], [rx + rw, ry + rh], [rx, ry + rh]]);
+          }
         }
       }
     }

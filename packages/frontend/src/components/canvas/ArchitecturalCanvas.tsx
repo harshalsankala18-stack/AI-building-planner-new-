@@ -307,8 +307,75 @@ export const ArchitecturalCanvas: React.FC<ArchitecturalCanvasProps> = ({
     rememberFloorCamera(cameraByFloorRef.current, previousFloorIdRef.current, transform);
   }, [transform]);
 
-  // Ensure MEP/Electrical/Fire Safety engineering overlays exist even on pre-Stage-F persisted buildings
+  // Ensure MEP/Electrical/Fire/Structural overlays exist even on pre-Stage-H persisted buildings
   const buildingForRender = useMemo(() => {
+    const anyStructuralMissing = editor.building.floors.some(
+      (fl) => fl.columns.length > 0 && (!fl.beams || fl.beams.length === 0 || !fl.structuralGrid),
+    );
+    let b: Building = editor.building;
+    if (anyStructuralMissing) {
+      b = {
+        ...b,
+        floors: b.floors.map((fl) => {
+          if (fl.beams && fl.beams.length > 0 && fl.structuralGrid) return fl;
+          const xs = Array.from(new Set(fl.columns.map((c) => Math.round(c.position.x / 50) * 50))).sort((x1, x2) => x1 - x2);
+          const ys = Array.from(new Set(fl.columns.map((c) => Math.round(c.position.y / 50) * 50))).sort((y1, y2) => y1 - y2);
+          const beams: NonNullable<Floor['beams']>[number][] = [];
+          const isGround = fl.level === 0 || fl.floorUse === 'STILT_PARKING';
+          let bIdx = 1;
+          for (const y of ys) {
+            const row = fl.columns.filter((c) => Math.abs(c.position.y - y) <= 120).sort((a, b) => a.position.x - b.position.x);
+            for (let i = 0; i < row.length - 1; i++) {
+              const a = row[i]!;
+              const c2 = row[i + 1]!;
+              if (Math.hypot(c2.position.x - a.position.x, c2.position.y - a.position.y) > 7800) continue;
+              beams.push({
+                id: `beam_${fl.id}_${bIdx}`,
+                floorId: fl.id,
+                tag: isGround ? `PB${bIdx++}` : `B${bIdx++}`,
+                startColumnId: a.id,
+                endColumnId: c2.id,
+                startPoint: a.position,
+                endPoint: c2.position,
+                widthMm: 230,
+                depthMm: isGround ? 380 : 450,
+                type: isGround ? 'PLINTH' : 'PRIMARY',
+              });
+            }
+          }
+          for (const x of xs) {
+            const colChain = fl.columns.filter((c) => Math.abs(c.position.x - x) <= 120).sort((a, b) => a.position.y - b.position.y);
+            for (let i = 0; i < colChain.length - 1; i++) {
+              const a = colChain[i]!;
+              const c2 = colChain[i + 1]!;
+              if (Math.hypot(c2.position.x - a.position.x, c2.position.y - a.position.y) > 7800) continue;
+              beams.push({
+                id: `beam_${fl.id}_${bIdx}`,
+                floorId: fl.id,
+                tag: isGround ? `PB${bIdx++}` : `B${bIdx++}`,
+                startColumnId: a.id,
+                endColumnId: c2.id,
+                startPoint: a.position,
+                endPoint: c2.position,
+                widthMm: 230,
+                depthMm: isGround ? 380 : 450,
+                type: isGround ? 'PLINTH' : 'PRIMARY',
+              });
+            }
+          }
+          return {
+            ...fl,
+            columns: fl.columns.map((c, ci) => ({ ...c, tag: c.tag ?? `C${ci + 1}` })),
+            structuralGrid: {
+              xAxes: xs.map((coord, i) => ({ id: `gx_${i + 1}`, label: String(i + 1), orientation: 'X' as const, coordinateMm: coord })),
+              yAxes: ys.map((coord, i) => ({ id: `gy_${i + 1}`, label: String.fromCharCode(65 + (i % 26)), orientation: 'Y' as const, coordinateMm: coord })),
+            },
+            beams,
+          };
+        }),
+      };
+    }
+
     const anyDiscipline =
       disciplines &&
       (disciplines.ELECTRICAL ||
@@ -316,19 +383,24 @@ export const ArchitecturalCanvas: React.FC<ArchitecturalCanvasProps> = ({
         disciplines.PLUMBING ||
         disciplines.STRUCTURAL ||
         disciplines.FALSE_CEILING);
-    if (!anyDiscipline) return editor.building;
+    if (!anyDiscipline) return b;
     const hasEnhancedMep =
-      editor.building.mepEngineering?.floors?.some((fl) =>
-        fl.runs.some((r) => r.kind === 'FIRE_EGRESS' || r.kind === 'WIRING_POWER'),
+      b.mepEngineering?.floors?.some((fl) =>
+        fl.symbols.some((s) => s.kind === 'WC' || s.kind === 'SOCKET_6A'),
       ) ?? false;
-    if (hasEnhancedMep) return editor.building;
-    return withMepEngineering(editor.building);
+    if (hasEnhancedMep) return b;
+    return withMepEngineering(b);
   }, [editor.building, disciplines]);
+
+  const floorForRender = useMemo(
+    () => buildingForRender.floors.find((fl) => fl.id === editor.activeFloor.id) ?? editor.activeFloor,
+    [buildingForRender.floors, editor.activeFloor],
+  );
 
   // Render Base SVG from Authoritative Renderer using current transform
   const svgContent = useMemo(() => {
     return renderFloor(
-      editor.activeFloor,
+      floorForRender,
       buildingForRender,
       transform,
       viewportSize.width,

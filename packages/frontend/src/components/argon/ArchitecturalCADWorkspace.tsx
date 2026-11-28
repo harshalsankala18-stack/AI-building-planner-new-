@@ -391,6 +391,7 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
                 <button
                   key={layer}
                   type="button"
+                  data-testid={`cad-pill-${layer}`}
                   aria-pressed={entityLayers[layer]}
                   onClick={() => setEntityLayers((p) => ({ ...p, [layer]: !p[layer] }))}
                   className={`px-2.5 py-1 rounded-full font-medium transition ${
@@ -422,6 +423,23 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
               </button>
               <button
                 type="button"
+                data-testid="cad-pill-plumbing"
+                aria-pressed={disciplines.PLUMBING}
+                onClick={() => {
+                  const nextVal = !disciplines.PLUMBING;
+                  setDisciplines((p) => ({ ...p, PLUMBING: nextVal }));
+                  onDisciplineChange?.(nextVal ? 'PLUMBING' : 'ARCHITECTURAL');
+                }}
+                className={`px-2.5 py-1 rounded-full font-medium transition ${
+                  disciplines.PLUMBING
+                    ? 'bg-sky-500 text-slate-950 font-bold shadow-xs'
+                    : 'text-sky-300/80 hover:text-sky-200 hover:bg-slate-800'
+                }`}
+              >
+                Plumbing
+              </button>
+              <button
+                type="button"
                 data-testid="cad-pill-fire-safety"
                 aria-pressed={disciplines.FIRE_SAFETY}
                 onClick={() => {
@@ -439,16 +457,31 @@ export const ArchitecturalCADWorkspace: React.FC<ArchitecturalCADWorkspaceProps>
               </button>
             </div>
 
-            {(disciplines.ELECTRICAL || disciplines.FIRE_SAFETY) && (
+            {(disciplines.ELECTRICAL || disciplines.PLUMBING || disciplines.FIRE_SAFETY || entityLayers.beams) && (
               <div
                 data-testid="mep-cad-legend"
                 className="absolute bottom-14 left-4 z-20 flex flex-wrap items-center gap-3 px-3 py-1.5 rounded-lg border border-slate-700/80 bg-slate-950/90 text-[10px] font-mono text-slate-200 shadow-xl backdrop-blur-md pointer-events-none"
               >
+                {entityLayers.beams && (
+                  <>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 bg-amber-600" />B1 Primary</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 bg-sky-600" />SB1 Secondary</span>
+                  </>
+                )}
                 {disciplines.ELECTRICAL && (
                   <>
                     <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 bg-amber-500" />C1-LT Lighting</span>
                     <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 bg-sky-500" />C2-PWR 16A</span>
                     <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 bg-teal-400" />C3-AC Split</span>
+                  </>
+                )}
+                {disciplines.PLUMBING && (
+                  <>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 bg-sky-500" />Cold Ø20</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 bg-orange-500" />Hot Ø20</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 bg-amber-900" />Soil Ø110</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 bg-emerald-600" />Waste Ø75</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-2.5 h-0.5 bg-indigo-500" />Rain Ø100</span>
                   </>
                 )}
                 {disciplines.FIRE_SAFETY && (

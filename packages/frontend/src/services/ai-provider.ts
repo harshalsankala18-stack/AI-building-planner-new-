@@ -2,14 +2,11 @@ import { BackendAPI } from './backend-api';
 import type { ArchitecturalResearchAgent } from '@ai-floor-planner/ai-orchestration';
 
 /**
- * Resolve the Gemini credential for the development-only, client-side fallback.
+ * Frontend AI Provider facade — strictly routed through server-side backend endpoints.
  *
- * SECURITY (Master PRD §36): No API key is ever hard-coded or committed. The key
- * is read exclusively from the build-time `VITE_GEMINI_API_KEY` environment
- * variable. When it is absent this returns `undefined` so callers surface an
- * explicit "AI unavailable / not configured" state instead of silently calling a
- * provider with a leaked credential. Public builds must route through the
- * server-side backend boundary rather than embedding any key.
+ * SECURITY (Master PRD §36): ZERO API keys or provider credentials are ever
+ * hard-coded, committed, or read in client browser bundles. All AI requests
+ * route exclusively through `/api/v1/projects/generate` on the backend.
  */
 export function getAIService(): BackendAPI {
   return new BackendAPI();

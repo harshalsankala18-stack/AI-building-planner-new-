@@ -7,6 +7,7 @@ import {
   parseJsonContent,
   postJson,
   response,
+  sanitizeSecrets,
   usage,
   HttpProviderError,
   type ProviderFetch,
@@ -134,12 +135,16 @@ export class GeminiProvider extends BaseAIProvider {
   private readonly endpointBase: string;
   readonly retryPolicy: GeminiRetryPolicy;
   readonly sleepFn: (ms: number) => Promise<void>;
+  private lastRequestAtMs = 0;
+  private readonly minRequestIntervalMs: number;
+  lastFallbackReason: string | null = null;
 
   constructor(options: GeminiProviderOptions) {
     super();
-    const model = options.model ?? 'gemini-3.6-flash';
+    const model = options.model ?? 'gemini-3.8-flash';
     const endpointBase = options.endpointBase ?? 'https://generativelanguage.googleapis.com/v1beta/models';
     this.endpointBase = endpointBase;
+    this.minRequestIntervalMs = options.fetchImplementation ? 0 : 250;
     const rawFallbacks = [
       ...(options.fallbackModels ?? []),
       ...(options.fallbackModel ? [options.fallbackModel] : []),
@@ -172,6 +177,13 @@ export class GeminiProvider extends BaseAIProvider {
   async complete(request: AIRequest): Promise<AIResponse> {
     const releaseConcurrency = await geminiLimiter.acquire();
     try {
+      if (this.minRequestIntervalMs > 0) {
+        const elapsed = Date.now() - this.lastRequestAtMs;
+        if (elapsed < this.minRequestIntervalMs) {
+          await this.sleepFn(this.minRequestIntervalMs - elapsed);
+        }
+      }
+      this.lastRequestAtMs = Date.now();
       return await this.executeComplete(request);
     } finally {
       releaseConcurrency();
@@ -220,7 +232,7 @@ export class GeminiProvider extends BaseAIProvider {
         try {
           const endpoint = `${this.endpointBase}/${encodeURIComponent(currentModel)}:generateContent`;
           const perAttemptTimeout = hasNextFallback
-            ? Math.min(this.options.timeoutMs, 5_000)
+            ? Math.min(this.options.timeoutMs, 12_000)
             : this.options.timeoutMs;
           const result = await postJson(
             {
@@ -303,13 +315,21 @@ export class GeminiProvider extends BaseAIProvider {
       }
 
       if (hasNextFallback) {
+        const statusCode = extractHttpStatus(lastError);
+        const reasonMsg = sanitizeSecrets(
+          lastError instanceof Error ? lastError.message : `status ${statusCode ?? 'transient'}`,
+        ).slice(0, 180);
+        this.lastFallbackReason = `${currentModel} -> ${modelsToExecute[mIdx + 1]} (${reasonMsg})`;
         console.warn(
-          `[GeminiProvider] Model "${currentModel}" temporarily unavailable (503/transient). Falling back to "${modelsToExecute[mIdx + 1]}"...`,
+          `[GeminiProvider] Model "${currentModel}" temporarily unavailable (${statusCode ?? 'transient'}). Falling back to "${modelsToExecute[mIdx + 1]}"...`,
         );
       }
     }
 
-    throw lastError ?? new Error('Gemini completion failed across all models.');
+    if (lastError instanceof Error) {
+      throw new Error(sanitizeSecrets(lastError.message));
+    }
+    throw new Error('Gemini completion failed across all models.');
   }
 
   async *stream(request: AIRequest): AsyncIterable<AIChunk> {

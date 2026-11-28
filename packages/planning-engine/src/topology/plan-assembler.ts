@@ -275,6 +275,190 @@ export function assembleStructureFromPartition(input: AssembleInput): AssembledP
     });
   }
 
+  // Ensure multi-flat floors (>= 2 flats) without an existing internal OTS void
+  // or explicit area target have an Inter-Flat O.T.S. ventilation court + plumbing shaft.
+  const hasExistingInternalOts = partition.shaftRoles.some(
+    (role, idx) => role === 'OPEN_TO_SKY_VOID' && !partition.shaftTags?.[idx]?.includes('recess:perimeter'),
+  );
+  if (
+    flats.length >= 2 &&
+    interflatOtsShafts.length === 0 &&
+    !hasExistingInternalOts &&
+    !program.mandatory.targetAreaSqFt &&
+    (!partition.massingShape || partition.massingShape === 'COMPACT_DOUBLE_LOADED') &&
+    program.mandatory.ventilationStrategy !== 'PERIMETER_ONLY'
+  ) {
+    const extraPartyShafts: ApartmentCoreElement[] = [];
+    const seenEdges = new Set<string>();
+    for (let i = 0; i < flats.length; i++) {
+      for (let j = i + 1; j < flats.length; j++) {
+        const fA = flats[i]!;
+        const fB = flats[j]!;
+        const shareHorizontal =
+          (Math.abs(fA.rect.y + fA.rect.height - fB.rect.y) <= 2 ||
+            Math.abs(fB.rect.y + fB.rect.height - fA.rect.y) <= 2) &&
+          Math.min(fA.rect.x + fA.rect.width, fB.rect.x + fB.rect.width) -
+            Math.max(fA.rect.x, fB.rect.x) >=
+            4800;
+        if (!shareHorizontal) continue;
+
+        const yParty =
+          Math.abs(fA.rect.y + fA.rect.height - fB.rect.y) <= 2
+            ? fB.rect.y
+            : fA.rect.y;
+        const partyKey = `${Math.round(Math.max(fA.rect.x, fB.rect.x))}:${Math.round(yParty)}`;
+        if (seenEdges.has(partyKey)) continue;
+
+        const carveH = 1300;
+        const halfCarve = 650;
+        const canTrim = (room: ApartmentPlanRoom, stripY: number, stripH: number): boolean => {
+          if (room.type !== 'bedroom') return false;
+          if (room.rect.height - stripH < 3000 || room.rect.width < 2600) return false;
+          return !openings.some((op) => {
+            if (!op.connects?.includes(room.id)) return false;
+            return Math.min(op.rect.y + op.rect.height, stripY + stripH) > Math.max(op.rect.y, stripY);
+          });
+        };
+
+        // Strategy A: Symmetrically carve 650mm from Flat i's bedroom + 650mm from Flat j's aligned bedroom
+        let carved = false;
+        const flatA = flats[i]!;
+        const flatB = flats[j]!;
+        for (let rAIdx = 0; rAIdx < flatA.rooms.length && !carved; rAIdx++) {
+          const rA = flatA.rooms[rAIdx]!;
+          const aOnTop = Math.abs(rA.rect.y + rA.rect.height - yParty) <= 2;
+          const aOnBot = Math.abs(rA.rect.y - yParty) <= 2;
+          if (!aOnTop && !aOnBot) continue;
+          const touchesLeftExt = Math.abs(rA.rect.x - builtFace.x) <= 2;
+          const touchesRightExt = Math.abs(rA.rect.x + rA.rect.width - (builtFace.x + builtFace.w)) <= 2;
+          if (!touchesLeftExt && !touchesRightExt) continue;
+
+          const rBIdx = flatB.rooms.findIndex(
+            (rb) =>
+              rb.type === 'bedroom' &&
+              Math.abs(rb.rect.x - rA.rect.x) <= 20 &&
+              Math.abs(rb.rect.width - rA.rect.width) <= 20 &&
+              (aOnTop ? Math.abs(rb.rect.y - yParty) <= 2 : Math.abs(rb.rect.y + rb.rect.height - yParty) <= 2),
+          );
+          if (rBIdx < 0) continue;
+          const rB = flatB.rooms[rBIdx]!;
+          const cutYA = aOnTop ? yParty - halfCarve : yParty;
+          const cutYB = aOnTop ? yParty : yParty - halfCarve;
+          if (!canTrim(rA, cutYA, halfCarve) || !canTrim(rB, cutYB, halfCarve)) continue;
+
+          const nextRoomsA = [...flatA.rooms];
+          nextRoomsA[rAIdx] = {
+            ...rA,
+            rect: {
+              ...rA.rect,
+              y: aOnTop ? rA.rect.y : rA.rect.y + halfCarve,
+              height: rA.rect.height - halfCarve,
+            },
+          };
+          const nextRoomsB = [...flatB.rooms];
+          nextRoomsB[rBIdx] = {
+            ...rB,
+            rect: {
+              ...rB.rect,
+              y: aOnTop ? rB.rect.y + halfCarve : rB.rect.y,
+              height: rB.rect.height - halfCarve,
+            },
+          };
+          flats[i] = { ...flatA, rooms: nextRoomsA };
+          flats[j] = { ...flatB, rooms: nextRoomsB };
+
+          const bandX = Math.max(rA.rect.x, rB.rect.x);
+          const bandW = Math.min(rA.rect.x + rA.rect.width, rB.rect.x + rB.rect.width) - bandX;
+          const plumbW = bandW >= 3500 ? 900 : 0;
+          const otsW = bandW - plumbW;
+          const otsX = touchesLeftExt ? bandX : bandX + plumbW;
+          interflatOtsShafts.push({
+            id: `core_shaft_interflat_${interflatOtsShafts.length + 1}`,
+            architecturalRole: 'OPEN_TO_SKY_VOID',
+            name: 'Inter-Flat Ventilation OTS Shaft',
+            rect: { x: otsX, y: yParty - halfCarve, width: otsW, height: carveH },
+            tags: ['shaft:ots', 'shaft:interflat'],
+            assignedFlatId: null,
+          });
+          if (plumbW >= 900) {
+            const plumbX = touchesLeftExt ? bandX + otsW : bandX;
+            extraPartyShafts.push({
+              id: `core_plumb_shaft_${extraPartyShafts.length + 1}`,
+              architecturalRole: 'SERVICE_SHAFT',
+              name: `Plumbing Shaft PS${extraPartyShafts.length + 1}`,
+              rect: { x: plumbX, y: yParty - halfCarve, width: plumbW, height: carveH },
+              tags: ['shaft:plumbing', 'shaft:interflat'],
+              assignedFlatId: null,
+            });
+          }
+          carved = true;
+        }
+
+        // Strategy B: Fallback single-room carve if room height >= 4300mm
+        const tryCarveRoom = (flatIdx: number): boolean => {
+          const flat = flats[flatIdx]!;
+          for (let rIdx = 0; rIdx < flat.rooms.length; rIdx++) {
+            const room = flat.rooms[rIdx]!;
+            const r = room.rect;
+            const touchesPartyBottom = Math.abs(r.y + r.height - yParty) <= 2;
+            const touchesPartyTop = Math.abs(r.y - yParty) <= 2;
+            if (!touchesPartyBottom && !touchesPartyTop) continue;
+            const touchesLeftExt = Math.abs(r.x - builtFace.x) <= 2;
+            const touchesRightExt = Math.abs(r.x + r.width - (builtFace.x + builtFace.w)) <= 2;
+            if (!touchesLeftExt && !touchesRightExt) continue;
+            const cutY = touchesPartyBottom ? r.y + r.height - carveH : r.y;
+            if (!canTrim(room, cutY, carveH)) continue;
+
+            const updatedRoom: ApartmentPlanRoom = {
+              ...room,
+              rect: {
+                ...r,
+                y: touchesPartyTop ? r.y + carveH : r.y,
+                height: r.height - carveH,
+              },
+            };
+            const mutableRooms = [...flat.rooms];
+            mutableRooms[rIdx] = updatedRoom;
+            flats[flatIdx] = { ...flat, rooms: mutableRooms };
+
+            const plumbW = r.width >= 3500 ? 900 : 0;
+            const otsW = r.width - plumbW;
+            const otsX = touchesLeftExt ? r.x : r.x + plumbW;
+
+            interflatOtsShafts.push({
+              id: `core_shaft_interflat_${interflatOtsShafts.length + 1}`,
+              architecturalRole: 'OPEN_TO_SKY_VOID',
+              name: 'Inter-Flat Ventilation OTS Shaft',
+              rect: { x: otsX, y: cutY, width: otsW, height: carveH },
+              tags: ['shaft:ots', 'shaft:interflat'],
+              assignedFlatId: null,
+            });
+            if (plumbW >= 900) {
+              const plumbX = touchesLeftExt ? r.x + otsW : r.x;
+              extraPartyShafts.push({
+                id: `core_plumb_shaft_${extraPartyShafts.length + 1}`,
+                architecturalRole: 'SERVICE_SHAFT',
+                name: `Plumbing Shaft PS${extraPartyShafts.length + 1}`,
+                rect: { x: plumbX, y: cutY, width: plumbW, height: carveH },
+                tags: ['shaft:plumbing', 'shaft:interflat'],
+                assignedFlatId: null,
+              });
+            }
+            return true;
+          }
+          return false;
+        };
+
+        if (carved || tryCarveRoom(i) || tryCarveRoom(j)) {
+          seenEdges.add(partyKey);
+        }
+      }
+    }
+    if (extraPartyShafts.length > 0) {
+      interflatOtsShafts.push(...extraPartyShafts);
+    }
+  }
+
   // ── Core elements and their circulation graph ──────────────────────────────
   const lifts: ApartmentCoreElement[] = partition.liftBoxes.map((b, i) => ({
     id: `core_lift_${i + 1}`,

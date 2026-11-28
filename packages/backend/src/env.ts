@@ -48,8 +48,8 @@ export function resolveServiceConfig(env: NodeJS.ProcessEnv = process.env): Serv
   // with a live smoke call against the Generative Language API. The previous
   // fallback default, "gemini-2.5-flash", returns HTTP 404 ("no longer
   // available to new users") and has been removed.
-  const primaryModel = (env.GEMINI_MODEL ?? '').trim() || 'gemini-3.6-flash';
-  const defaultFallback = primaryModel === 'gemini-3.1-flash-lite' ? 'gemini-3.6-flash' : 'gemini-3.1-flash-lite';
+  const primaryModel = (env.GEMINI_PRIMARY_MODEL ?? env.GEMINI_MODEL ?? '').trim() || 'gemini-3.8-flash';
+  const defaultFallback = primaryModel === 'gemini-3.5-flash-lite' ? 'gemini-3.8-flash' : 'gemini-3.5-flash-lite';
   const fallbackModel = (env.GEMINI_FALLBACK_MODEL ?? '').trim() || defaultFallback;
 
   const dbProvider = (env.DATABASE_PROVIDER ?? 'local').trim().toLowerCase() === 'supabase' ? 'supabase' : 'local';

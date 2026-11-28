@@ -230,10 +230,11 @@ function renderMepRuns(
     WIRING_LOOP: { stroke: '#d97706', dash: '4,3', width: 1.2 },
     WIRING_POWER: { stroke: '#0284c7', dash: '6,2', width: 1.3 },
     WIRING_AC: { stroke: '#0d9488', dash: '2,2', width: 1.2 },
-    CWS: { stroke: '#0284c7', dash: '', width: 1.3 },
-    HWS: { stroke: '#ea580c', dash: '5,2', width: 1.3 },
-    SP: { stroke: '#7c2d12', dash: '', width: 2.0 },
-    WP: { stroke: '#0d9488', dash: '3,2', width: 1.4 },
+    CWS: { stroke: '#0284c7', dash: '', width: 1.4 },
+    HWS: { stroke: '#ea580c', dash: '5,2', width: 1.4 },
+    SP: { stroke: '#7c2d12', dash: '', width: 2.2 },
+    WP: { stroke: '#059669', dash: '3,2', width: 1.6 },
+    RWP_PIPE: { stroke: '#4f46e5', dash: '4,2', width: 1.4 },
     FIRE_PIPE: { stroke: '#dc2626', dash: '6,3', width: 1.6 },
     FIRE_EGRESS: { stroke: '#16a34a', dash: '7,4', width: 2.1 },
   };
@@ -241,7 +242,9 @@ function renderMepRuns(
   const defs =
     disciplineFilter === 'FIRE'
       ? `<defs><marker id="fire-egress-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#16a34a"/></marker></defs>`
-      : '';
+      : disciplineFilter === 'PLUMBING'
+        ? `<defs><marker id="plumb-arrow-sp" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M 0 1 L 10 5 L 0 9 z" fill="#7c2d12"/></marker><marker id="plumb-arrow-wp" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M 0 1 L 10 5 L 0 9 z" fill="#059669"/></marker></defs>`
+        : '';
 
 function orthogonalizeMepPoints(points: readonly Point[]): Point[] {
   if (points.length < 2) return [...points];
@@ -259,14 +262,18 @@ function orthogonalizeMepPoints(points: readonly Point[]): Point[] {
 
   const elements = matched.map((run) => {
     const st = colorByKind[run.kind] ?? colorByKind.WIRING_LOOP;
-    const routedPoints =
-      run.discipline === 'ELECTRICAL' || run.kind === 'FIRE_PIPE'
-        ? orthogonalizeMepPoints(run.points)
-        : run.points;
+    const routedPoints = orthogonalizeMepPoints(run.points);
     const screenPts = routedPoints.map((p) => worldToScreen(p, transform));
     const pts = screenPts.map((sp) => `${sp.x.toFixed(1)},${sp.y.toFixed(1)}`).join(' ');
     const dashAttr = st.dash ? ` stroke-dasharray="${st.dash}"` : '';
-    const markerAttr = run.kind === 'FIRE_EGRESS' ? ' marker-end="url(#fire-egress-arrow)"' : '';
+    const markerAttr =
+      run.kind === 'FIRE_EGRESS'
+        ? ' marker-end="url(#fire-egress-arrow)"'
+        : run.kind === 'SP'
+          ? ' marker-end="url(#plumb-arrow-sp)"'
+          : run.kind === 'WP'
+            ? ' marker-end="url(#plumb-arrow-wp)"'
+            : '';
     const midPt = screenPts[Math.floor(screenPts.length / 2)]!;
     const junctionDots =
       run.discipline === 'ELECTRICAL'
@@ -278,12 +285,16 @@ function orthogonalizeMepPoints(points: readonly Point[]): Point[] {
             )
             .join('')
         : '';
+    const pipeTag =
+      run.discipline === 'PLUMBING' && (run.label || run.diameterMm)
+        ? `<text data-fixed-annotation="true" x="${midPt.x.toFixed(1)}" y="${(midPt.y - 3.5).toFixed(1)}" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="5.8" font-weight="700" fill="${st.stroke}" paint-order="stroke" stroke="#ffffff" stroke-width="1.8">${escapeXml(run.label ?? `Ø${run.diameterMm}`)}</text>`
+        : '';
     const tagText =
       run.kind === 'FIRE_EGRESS' && run.egressDistanceM
         ? `<text data-fixed-annotation="true" x="${midPt.x.toFixed(1)}" y="${(midPt.y - 5).toFixed(1)}" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="6.5" font-weight="700" fill="#15803d">EGRESS ${run.egressDistanceM}m</text>`
         : run.circuitId
           ? `<text data-fixed-annotation="true" x="${midPt.x.toFixed(1)}" y="${(midPt.y - 4).toFixed(1)}" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="6" font-weight="700" fill="${st.stroke}">${escapeXml(run.circuitId)}</text>`
-          : '';
+          : pipeTag;
     return `<polyline points="${pts}" fill="none" stroke="${st.stroke}" stroke-width="${st.width}"${dashAttr}${markerAttr} stroke-opacity="0.9" data-layer="${escapeXml(run.layer)}" data-pipe-kind="${escapeXml(run.kind)}"/>${junctionDots}${tagText}`;
   });
 
@@ -311,21 +322,26 @@ function renderMepSymbols(
 
     switch (sym.kind) {
       case 'DB':
-        return `<g data-mep-kind="DB" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
-          <rect x="-7" y="-4" width="14" height="8" fill="#fef3c7" stroke="#b45309" stroke-width="1.2"/>
-          <line x1="-7" y1="-4" x2="7" y2="4" stroke="#b45309" stroke-width="0.9"/>
-          <text x="0" y="-7" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="7" font-weight="700" fill="#92400e">DB</text>
+      case 'LT_PANEL':
+      case 'ES':
+        return `<g data-mep-kind="${sym.kind}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
+          <rect x="-8" y="-4.5" width="16" height="9" fill="${sym.kind === 'LT_PANEL' ? '#fee2e2' : sym.kind === 'ES' ? '#e0e7ff' : '#fef3c7'}" stroke="${sym.kind === 'LT_PANEL' ? '#b91c1c' : sym.kind === 'ES' ? '#4338ca' : '#b45309'}" stroke-width="1.2"/>
+          <line x1="-8" y1="-4.5" x2="8" y2="4.5" stroke="${sym.kind === 'LT_PANEL' ? '#b91c1c' : sym.kind === 'ES' ? '#4338ca' : '#b45309'}" stroke-width="0.9"/>
+          <text data-fixed-annotation="true" x="0" y="-7" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="6.8" font-weight="800" fill="#1e293b">${sym.kind === 'LT_PANEL' ? 'LT' : sym.kind}</text>
         </g>`;
       case 'FAN':
         return `<g data-mep-kind="FAN" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
           <circle cx="0" cy="0" r="6" fill="none" stroke="#d97706" stroke-width="1.1"/>
           <line x1="-5" y1="0" x2="5" y2="0" stroke="#d97706" stroke-width="1.1"/>
           <line x1="0" y1="-5" x2="0" y2="5" stroke="#d97706" stroke-width="1.1"/>
-          <text x="0" y="13" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="6.5" font-weight="700" fill="#b45309">FAN</text>
+          <text data-fixed-annotation="true" x="0" y="13" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="6.5" font-weight="700" fill="#b45309">CF</text>
         </g>`;
       case 'DL':
-        return `<g data-mep-kind="DL" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
-          <circle cx="0" cy="0" r="3" fill="#fde68a" stroke="#d97706" stroke-width="1"/>
+      case 'PL':
+      case 'BL':
+        return `<g data-mep-kind="${sym.kind}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
+          <circle cx="0" cy="0" r="${sym.kind === 'PL' ? 4 : 3}" fill="${sym.kind === 'BL' ? '#fef9c3' : '#fde68a'}" stroke="#d97706" stroke-width="1"/>
+          <text data-fixed-annotation="true" x="0" y="9" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="5.5" font-weight="700" fill="#92400e">${sym.kind === 'DL' ? 'CL' : sym.kind}</text>
         </g>`;
       case 'SB':
       case 'SB_2WAY':
@@ -333,17 +349,24 @@ function renderMepSymbols(
           <circle cx="0" cy="0" r="2.8" fill="#ffffff" stroke="#b45309" stroke-width="1.1"/>
           <line x1="0" y1="-2.8" x2="4" y2="-5.5" stroke="#b45309" stroke-width="1"/>
         </g>`;
+      case 'SOCKET_6A':
+      case 'TV_DATA':
+      case 'EF':
+        return `<g data-mep-kind="${sym.kind}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
+          <circle cx="0" cy="0" r="3" fill="${sym.kind === 'TV_DATA' ? '#e0f2fe' : '#fffbeb'}" stroke="${sym.kind === 'TV_DATA' ? '#0369a1' : '#b45309'}" stroke-width="1"/>
+          <text data-fixed-annotation="true" x="0" y="9.5" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="5.5" font-weight="700" fill="#334155">${sym.kind === 'SOCKET_6A' ? '6A' : sym.kind === 'TV_DATA' ? 'TV' : 'EF'}</text>
+        </g>`;
       case 'SOCKET_16A':
       case 'GY':
         return `<g data-mep-kind="${sym.kind}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
           <rect x="-3.5" y="-3.5" width="7" height="7" fill="#fffbeb" stroke="#b45309" stroke-width="1"/>
-          <text x="0" y="10" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="6" font-weight="700" fill="#92400e">${sym.kind === 'GY' ? 'GY' : '16A'}</text>
+          <text data-fixed-annotation="true" x="0" y="10" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="6" font-weight="700" fill="#92400e">${sym.kind === 'GY' ? 'GY' : '16A'}</text>
         </g>`;
       case 'AC_IDU':
       case 'AC_ODU':
         return `<g data-mep-kind="${sym.kind}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
           <rect x="-6" y="-3" width="12" height="6" fill="#e0f2fe" stroke="#0369a1" stroke-width="1"/>
-          <text x="0" y="-5" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="6" font-weight="700" fill="#0369a1">${sym.kind === 'AC_IDU' ? 'AC' : 'ODU'}</text>
+          <text data-fixed-annotation="true" x="0" y="-5" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="6" font-weight="700" fill="#0369a1">${sym.kind === 'AC_IDU' ? 'AC' : 'ODU'}</text>
         </g>`;
       case 'PLUMB_SHAFT': {
         const wPx = Math.max(8, scaleToScreen(sym.widthMm ?? 600, transform));
@@ -352,6 +375,28 @@ function renderMepSymbols(
           <rect x="${(-wPx / 2).toFixed(1)}" y="${(-dPx / 2).toFixed(1)}" width="${wPx.toFixed(1)}" height="${dPx.toFixed(1)}" fill="#e0f2fe" fill-opacity="0.7" stroke="#0369a1" stroke-width="1.3"/>
           <line x1="${(-wPx / 2).toFixed(1)}" y1="${(-dPx / 2).toFixed(1)}" x2="${(wPx / 2).toFixed(1)}" y2="${(dPx / 2).toFixed(1)}" stroke="#0369a1" stroke-width="0.9"/>
           <line x1="${(wPx / 2).toFixed(1)}" y1="${(-dPx / 2).toFixed(1)}" x2="${(-wPx / 2).toFixed(1)}" y2="${(dPx / 2).toFixed(1)}" stroke="#0369a1" stroke-width="0.9"/>
+          <text data-fixed-annotation="true" x="0" y="${(-dPx / 2 - 3).toFixed(1)}" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="6" font-weight="800" fill="#0369a1">PS</text>
+        </g>`;
+      }
+      case 'WC':
+      case 'WB':
+      case 'SH':
+      case 'KS':
+      case 'WM':
+      case 'RWP':
+      case 'IC':
+      case 'GT':
+        return `<g data-mep-kind="${sym.kind}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
+          <circle cx="0" cy="0" r="${sym.kind === 'IC' ? 4.5 : 3.2}" fill="#e0f2fe" stroke="${sym.kind === 'RWP' ? '#4f46e5' : sym.kind === 'WC' || sym.kind === 'IC' ? '#7c2d12' : '#0284c7'}" stroke-width="1.1"/>
+          <text data-fixed-annotation="true" x="0" y="9" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="5.5" font-weight="800" fill="#0f172a">${escapeXml(sym.kind)}</text>
+        </g>`;
+      case 'UGWT':
+      case 'OHT': {
+        const wPx = Math.max(14, scaleToScreen(sym.widthMm ?? 2000, transform));
+        const dPx = Math.max(12, scaleToScreen(sym.depthMm ?? 1500, transform));
+        return `<g data-mep-kind="${sym.kind}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
+          <rect x="${(-wPx / 2).toFixed(1)}" y="${(-dPx / 2).toFixed(1)}" width="${wPx.toFixed(1)}" height="${dPx.toFixed(1)}" fill="#bae6fd" fill-opacity="0.7" stroke="#0284c7" stroke-width="1.4"/>
+          <text data-fixed-annotation="true" x="0" y="3" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="7" font-weight="800" fill="#0c4a6e">${sym.kind}</text>
         </g>`;
       }
       case 'FT':

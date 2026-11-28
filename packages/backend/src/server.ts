@@ -74,7 +74,7 @@ export function createGeminiProvider(config: ServiceConfig): GeminiProvider | nu
     apiKey: config.geminiApiKey,
     model: config.geminiModel,
     fallbackModel: config.geminiFallbackModel,
-    fallbackModels: ['gemini-3.7-flash', config.geminiFallbackModel],
+    fallbackModels: [config.geminiFallbackModel],
     maxRetriesOn503: 1,
     timeoutMs: config.providerTimeoutMs,
   });
@@ -483,6 +483,7 @@ async function route(request: IncomingMessage, response: ServerResponse, deps: S
       repository,
       storage,
       workerRole: deps.config?.workerRole,
+      getLastFallbackReason: () => deps.gemini?.lastFallbackReason ?? null,
     })) return;
 
     // ── Static Asset Serving ──────────────────────────────────────────────────
@@ -560,7 +561,11 @@ async function route(request: IncomingMessage, response: ServerResponse, deps: S
 
     sendJson(response, 404, { error: { code: 'NOT_FOUND', message: 'Unknown endpoint.' } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unexpected server error.';
+    const rawMsg = error instanceof Error ? error.message : 'Unexpected server error.';
+    const message = rawMsg
+      .replace(/AIza[0-9A-Za-z_-]{20,}/g, '[REDACTED_GEMINI_KEY]')
+      .replace(/AQ\.[0-9A-Za-z_.-]{20,}/g, '[REDACTED_GEMINI_KEY]')
+      .replace(/([?&]key=)[^&\s"'`]+/gi, '$1[REDACTED]');
     const isPayloadTooLarge = message.toLowerCase().includes('payload too large') || message.toLowerCase().includes('too large');
     sendJson(response, isPayloadTooLarge ? 413 : 500, {
       error: { code: isPayloadTooLarge ? 'PAYLOAD_TOO_LARGE' : 'SERVER_ERROR', message },

@@ -8,6 +8,36 @@ import {
   parseMixedUnitProgram,
 } from '@ai-floor-planner/core';
 import { GEMINI_SUPPORTED_IMAGE_MIME_TYPES } from '../providers/gemini';
+import { sanitizeSecrets } from '../providers/http';
+
+const BRIEF_CACHE_TTL_MS = 5 * 60 * 1000;
+const providerProposalCache = new WeakMap<
+  object,
+  Map<string, { expiresAt: number; result: ArchitecturalProposalResult }>
+>();
+
+function buildProposalCacheKey(
+  config: MultiSheetApartmentConfig,
+  seed: number,
+  rejected: readonly string[],
+  hasImage: boolean,
+): string {
+  const normPrompt = (config.aiPrompt ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const unitsKey = (config.units ?? []).map((u) => `${u.bhkType}:${u.targetCarpetSqFt ?? ''}`).join(',');
+  return [
+    config.plotWidthMm,
+    config.plotDepthMm,
+    config.roadWidthMm,
+    config.verticalStackType,
+    config.numTypicalFloors,
+    config.flatsPerFloor,
+    unitsKey,
+    seed,
+    rejected.join('|'),
+    normPrompt,
+    hasImage ? (config.referenceImage?.dataUrl?.slice(0, 64) ?? 'img') : 'no-img',
+  ].join('::');
+}
 
 export const BUILDING_MASSING_SHAPES: readonly BuildingMassingShape[] = [
   'COMPACT_DOUBLE_LOADED',
@@ -88,6 +118,16 @@ export interface ArchitecturalProposal {
   };
   readonly designRationale: string;
   readonly referenceSpatialGraph?: ReferenceSpatialGraph;
+  readonly buildingType?: 'house' | 'villa' | 'apartment';
+  readonly zoningPreferences?: {
+    readonly foyer?: boolean;
+    readonly passage?: boolean;
+    readonly wetCoreGrouping?: boolean;
+    readonly otsCount?: number;
+  };
+  readonly structuralHint?: {
+    readonly preferredGridSpanMm?: number;
+  };
 }
 
 export interface ArchitecturalProposalTelemetry {
@@ -167,6 +207,22 @@ export const ARCHITECTURAL_PROPOSAL_SCHEMA: Record<string, unknown> = {
       required: ['kitchenQuadrant', 'masterBedroomQuadrant', 'entranceDirection'],
     },
     designRationale: { type: 'string' },
+    buildingType: { type: 'string', enum: ['house', 'villa', 'apartment'] },
+    zoningPreferences: {
+      type: 'object',
+      properties: {
+        foyer: { type: 'boolean' },
+        passage: { type: 'boolean' },
+        wetCoreGrouping: { type: 'boolean' },
+        otsCount: { type: 'number' },
+      },
+    },
+    structuralHint: {
+      type: 'object',
+      properties: {
+        preferredGridSpanMm: { type: 'number' },
+      },
+    },
     referenceSpatialGraph: {
       type: 'object',
       properties: {
@@ -415,6 +471,30 @@ function sanitizeProposalWithPromptGuardrails(
     designRationale: typeof raw.designRationale === 'string' && raw.designRationale.trim()
       ? raw.designRationale.trim()
       : base.designRationale,
+    buildingType: typeof raw.buildingType === 'string' && ['house', 'villa', 'apartment'].includes(raw.buildingType)
+      ? (raw.buildingType as ArchitecturalProposal['buildingType'])
+      : config.flatsPerFloor === 1
+        ? 'house'
+        : 'apartment',
+    ...(typeof raw.zoningPreferences === 'object' && raw.zoningPreferences !== null
+      ? {
+          zoningPreferences: {
+            foyer: Boolean((raw.zoningPreferences as Record<string, unknown>).foyer ?? true),
+            passage: Boolean((raw.zoningPreferences as Record<string, unknown>).passage ?? true),
+            wetCoreGrouping: Boolean((raw.zoningPreferences as Record<string, unknown>).wetCoreGrouping ?? true),
+            ...(typeof (raw.zoningPreferences as Record<string, unknown>).otsCount === 'number'
+              ? { otsCount: Math.max(0, Math.round(Number((raw.zoningPreferences as Record<string, unknown>).otsCount))) }
+              : {}),
+          },
+        }
+      : {}),
+    ...(typeof raw.structuralHint === 'object' && raw.structuralHint !== null && typeof (raw.structuralHint as Record<string, unknown>).preferredGridSpanMm === 'number'
+      ? {
+          structuralHint: {
+            preferredGridSpanMm: Math.min(6200, Math.max(2400, Number((raw.structuralHint as Record<string, unknown>).preferredGridSpanMm))),
+          },
+        }
+      : {}),
     ...(referenceSpatialGraph ? { referenceSpatialGraph } : {}),
   };
 }
@@ -564,12 +644,21 @@ export async function generateArchitecturalProposal(
       : '',
   ].filter(Boolean).join('\n');
 
+  const cacheKey = buildProposalCacheKey(input.config, seed, rejected, Boolean(imagePart));
+  if (provider) {
+    const cache = providerProposalCache.get(provider);
+    const hit = cache?.get(cacheKey);
+    if (hit && hit.expiresAt > Date.now()) {
+      return hit.result;
+    }
+  }
+
   try {
     const response = await provider.complete({
       taskType: AITaskType.RequirementExtraction,
       systemPrompt:
         'You are a Principal Indian Residential Architect (NBC 2016 / UDCPR / RERA specialist). ' +
-        'Translate the user brief, site envelope, and optional reference plan image into a structured ArchitecturalProposal JSON object. ' +
+        'Translate the user brief, site envelope, and optional reference plan image into a structured ArchitecturalProposal JSON blueprint (buildingType, preferredTopologyFamily, preferredArchetype, buildingMassingShape, zoningPreferences, structuralHint, vastuPreferences). ' +
         'Strictly honor hard directives such as NO OTS, CENTER BUILDING, core placement, and Vastu rules.',
       userPrompt: userPromptLines,
       ...(imagePart ? { images: [imagePart] } : {}),
@@ -581,7 +670,7 @@ export async function generateArchitecturalProposal(
     });
 
     const proposal = sanitizeProposalWithPromptGuardrails(response.parsed, input.config, seed);
-    return buildEnriched(proposal, {
+    const out = buildEnriched(proposal, {
       geminiInvoked: true,
       provider: 'google-genai',
       modelUsed: response.model,
@@ -589,6 +678,13 @@ export async function generateArchitecturalProposal(
       fallbackTriggered: response.model !== provider.getModelInfo().model,
       referenceImageUsedForGeometry: Boolean(imagePart && proposal.referenceSpatialGraph),
     });
+    let cache = providerProposalCache.get(provider);
+    if (!cache) {
+      cache = new Map();
+      providerProposalCache.set(provider, cache);
+    }
+    cache.set(cacheKey, { expiresAt: Date.now() + BRIEF_CACHE_TTL_MS, result: out });
+    return out;
   } catch (error) {
     const proposal = defaultProposalForConfig(input.config, seed);
     return buildEnriched(proposal, {
@@ -597,7 +693,7 @@ export async function generateArchitecturalProposal(
       modelUsed: provider.getModelInfo().model,
       latencyMs: Date.now() - startedAt,
       fallbackTriggered: true,
-      fallbackReason: error instanceof Error ? error.message : String(error),
+      fallbackReason: sanitizeSecrets(error instanceof Error ? error.message : String(error)),
       referenceImageUsedForGeometry: false,
     });
   }
